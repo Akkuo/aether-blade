@@ -96,3 +96,123 @@ canvas#game {
   color: #ffd085;
   border-color: rgba(255, 174, 86, 0.55);
 }
+
+/* --- MOBILE VIRTUAL GAMEPAD --- */
+.mini-btn {
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 700;
+  color: #dff5e4;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#touch-controls {
+  display: none;
+  width: min(96vw, 720px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px;
+  touch-action: none;
+}
+
+#touch-controls.visible {
+  display: flex;
+}
+
+.touch-dpad {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.touch-dpad-mid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.touch-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tbtn {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(255, 255, 255, 0.24);
+  background: rgba(16, 28, 22, 0.82);
+  color: #f4fff4;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: inherit;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.tbtn.small {
+  width: 46px;
+  height: 38px;
+  font-size: 13px;
+}
+
+.tbtn.sword {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: rgba(74, 232, 130, 0.24);
+  border-color: rgba(94, 245, 148, 0.68);
+  color: #b8ffcf;
+  font-size: 14px;
+}
+
+.tbtn.item {
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background: rgba(255, 196, 78, 0.22);
+  border-color: rgba(255, 210, 96, 0.65);
+  color: #ffebb0;
+  font-size: 13px;
+}
+
+.tbtn.roll {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: rgba(88, 210, 255, 0.2);
+  border-color: rgba(110, 224, 255, 0.6);
+  color: #b4f4ff;
+  font-size: 12px;
+}
+
+.tbtn.switch {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(186, 128, 255, 0.2);
+  border-color: rgba(196, 148, 255, 0.55);
+  color: #e4ccff;
+  font-size: 12px;
+}
+
+.tbtn.pressed {
+  transform: scale(0.92);
+  filter: brightness(1.35);
+}
+
+@media (hover: none) and (pointer: coarse), (max-width: 820px) {
+  #controls-bar span:not(.badge) {
+    display: none;
+  }
+  #canvas-wrap {
+    width: min(98vw, calc((100vh - 155px) * 16 / 10));
+  }
+}

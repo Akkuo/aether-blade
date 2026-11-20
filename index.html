@@ -11,8 +11,27 @@
       <div id="canvas-wrap">
         <canvas id="game" width="960" height="600"></canvas>
       </div>
+
+      <div id="touch-controls" aria-label="行動端虛擬手把">
+        <div class="touch-dpad">
+          <button class="tbtn" data-key="ArrowLeft" aria-label="左">◀</button>
+          <div class="touch-dpad-mid">
+            <button class="tbtn small" data-key="ArrowUp" aria-label="上">▲</button>
+            <button class="tbtn small" data-key="ArrowDown" aria-label="下">▼</button>
+          </div>
+          <button class="tbtn" data-key="ArrowRight" aria-label="右">▶</button>
+        </div>
+        <div class="touch-actions">
+          <button class="tbtn switch" data-key="KeyQ">切換</button>
+          <button class="tbtn roll" data-key="ShiftLeft">翻滾</button>
+          <button class="tbtn item" data-key="KeyE">道具</button>
+          <button class="tbtn sword" data-key="Space">揮劍</button>
+        </div>
+      </div>
+
       <footer id="controls-bar">
         <span class="badge" id="area-pill">OVERWORLD 聖樹平原</span>
+        <button id="touch-toggle-btn" class="mini-btn" type="button">🎮 觸控手把</button>
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> 移動</span>
         <span><kbd>Space</kbd> / <kbd>Z</kbd> 揮劍（長按迴旋斬・滿血劍氣）</span>
         <span><kbd>E</kbd> / <kbd>X</kbd> 使用道具</span>

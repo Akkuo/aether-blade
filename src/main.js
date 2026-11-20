@@ -40,6 +40,49 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
 displayCanvas.addEventListener('pointerdown', () => sound.unlock());
 
+// --- MOBILE TOUCH VIRTUAL GAMEPAD ---
+const touchRoot = document.getElementById('touch-controls');
+const touchToggleBtn = document.getElementById('touch-toggle-btn');
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (touchRoot && isTouchDevice) touchRoot.classList.add('visible');
+if (touchToggleBtn && touchRoot) {
+  touchToggleBtn.addEventListener('click', () => {
+    touchRoot.classList.toggle('visible');
+    renderer.resize();
+  });
+}
+if (touchRoot) {
+  const activePointers = new Map();
+  const releasePointer = (pid) => {
+    const entry = activePointers.get(pid);
+    if (!entry) return;
+    activePointers.delete(pid);
+    entry.btn.classList.remove('pressed');
+    let stillHeld = false;
+    for (const v of activePointers.values()) {
+      if (v.code === entry.code) stillHeld = true;
+    }
+    if (!stillHeld) keys.delete(entry.code);
+  };
+  touchRoot.querySelectorAll('.tbtn[data-key]').forEach((btn) => {
+    const code = btn.dataset.key;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      sound.unlock();
+      btn.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { code, btn });
+      if (!keys.has(code)) justPressed.add(code);
+      keys.add(code);
+      btn.classList.add('pressed');
+    });
+    btn.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      releasePointer(e.pointerId);
+    });
+    btn.addEventListener('pointercancel', (e) => releasePointer(e.pointerId));
+  });
+}
+
 function readInput() {
   const down = (...c) => c.some((k) => keys.has(k));
   const pressed = (...c) => c.some((k) => justPressed.has(k));
