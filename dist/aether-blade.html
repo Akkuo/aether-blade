@@ -1,0 +1,3018 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AETHER BLADE — 聖樹傳說</title>
+    <style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, #16241b 0%, #090e0c 70%, #050706 100%);
+  color: #eaf5e8;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+}
+
+#stage-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+#canvas-wrap {
+  position: relative;
+  width: min(95vw, calc((100vh - 58px) * 16 / 10));
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid rgba(116, 224, 152, 0.35);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.78),
+    0 0 42px rgba(72, 196, 120, 0.16);
+  background: #0a100c;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+#canvas-wrap.in-dungeon {
+  border-color: rgba(255, 166, 78, 0.45);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.85),
+    0 0 44px rgba(255, 134, 52, 0.2);
+}
+
+canvas#game {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: #b4cbb8;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(11, 18, 14, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#controls-bar kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f4fff4;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 11px;
+  background: rgba(74, 214, 120, 0.2);
+  color: #8effb0;
+  border: 1px solid rgba(94, 232, 140, 0.5);
+}
+
+.badge.dungeon {
+  background: rgba(255, 152, 56, 0.22);
+  color: #ffd085;
+  border-color: rgba(255, 174, 86, 0.55);
+}
+
+</style>
+  </head>
+  <body>
+    <main id="stage-shell">
+      <div id="canvas-wrap">
+        <canvas id="game" width="960" height="600"></canvas>
+      </div>
+      <footer id="controls-bar">
+        <span class="badge" id="area-pill">OVERWORLD 聖樹平原</span>
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> 移動</span>
+        <span><kbd>Space</kbd> / <kbd>Z</kbd> 揮劍（長按迴旋斬・滿血劍氣）</span>
+        <span><kbd>E</kbd> / <kbd>X</kbd> 使用道具</span>
+        <span><kbd>Q</kbd> 切換道具（迴力鏢/炸彈）</span>
+        <span><kbd>Shift</kbd> 翻滾閃避</span>
+        <span><kbd>G</kbd> Bloom</span>
+        <span><kbd>M</kbd> 靜音</span>
+        <span><kbd>R</kbd> 重來</span>
+      </footer>
+    </main>
+    <script>
+(() => {
+'use strict';
+// === src/constants.js ===
+const ROOM_COLS = 20;
+const ROOM_ROWS = 12;
+const TILE_SIZE = 16;
+const PLAY_W = ROOM_COLS * TILE_SIZE; // 320
+const PLAY_H = ROOM_ROWS * TILE_SIZE; // 192
+const HUD_H = 24;
+const VIEW_W = PLAY_W;               // 320
+const VIEW_H = PLAY_H + HUD_H;       // 216 (16:10.8, crisp 16-bit Zelda ratio)
+const DIR = {
+  DOWN: 0,
+  UP: 1,
+  LEFT: 2,
+  RIGHT: 3,
+};
+const DIR_VEC = [
+  { x: 0, y: 1 },
+  { x: 0, y: -1 },
+  { x: -1, y: 0 },
+  { x: 1, y: 0 },
+];
+const STATE = {
+  TITLE: 'title',
+  PLAYING: 'playing',
+  TRANSITION: 'transition',
+  DIALOGUE: 'dialogue',
+  PAUSED: 'paused',
+  GAME_OVER: 'game_over',
+  VICTORY: 'victory',
+};
+const TILE = {
+  GRASS: 0,
+  PATH: 1,
+  TREE: 2,
+  WATER: 3,
+  BUSH: 4,         // Cuttable with sword!
+  ROCK: 5,         // Solid rock
+  CRACKED_WALL: 6, // Destroyable with Bomb!
+  DUNGEON_FLOOR: 7,
+  DUNGEON_WALL: 8,
+  PUSH_BLOCK: 9,   // Pushable stone block
+  SWITCH: 10,      // Floor pressure switch
+  LOCKED_DOOR: 11, // Opens with Small Key or room puzzle
+  TORCH: 12,       // Glowing wall/floor torch
+  STAIRS_IN: 13,   // Enter Sanctuary Dungeon
+  STAIRS_OUT: 14,  // Exit to Overworld
+  FLOWERS: 15,
+  BRIDGE: 16,
+  SIGN: 17,
+  PEDESTAL: 18,
+};
+
+// === src/audio.js ===
+// Procedural 8/16-bit Zelda-style Adventure Web Audio Synthesizer
+
+const NF = {
+  A2: 110, C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196, Ab3: 207.65, A3: 220, Bb3: 233.08, B3: 246.94,
+  C4: 261.63, D4: 293.66, Eb4: 311.13, E4: 329.63, F4: 349.23, Fs4: 369.99, G4: 392, Ab4: 415.3, A4: 440, Bb4: 466.16, B4: 493.88,
+  C5: 523.25, D5: 587.33, Eb5: 622.25, E5: 659.25, F5: 698.46, Fs5: 739.99, G5: 783.99, A5: 880, B5: 987.77, C6: 1046.5,
+};
+
+const OVERWORLD_MEL = [
+  'D5', null, 'A4', null, 'D5', 'D5', 'E5', 'Fs5',
+  'G5', null, 'A5', null, 'A5', null, 'G5', 'Fs5',
+  'E5', null, 'D5', 'E5', 'Fs5', null, 'D5', null,
+  'B4', 'C5', 'D5', 'E5', 'A4', null, null, null,
+];
+
+const OVERWORLD_BAS = [
+  'D3', null, 'A3', null, 'D3', null, 'A3', null,
+  'G3', null, 'D3', null, 'G3', null, 'D3', null,
+  'A3', null, 'E3', null, 'D3', null, 'A3', null,
+  'G3', null, 'A3', null, 'D3', null, 'A3', null,
+];
+
+const DUNGEON_MEL = [
+  'E4', 'G4', 'A4', 'Bb4', 'A4', 'G4', 'E4', null,
+  'D4', 'F4', 'G4', 'Ab4', 'G4', 'F4', 'D4', null,
+  'E4', 'B4', 'A4', 'G4', 'Fs4', 'E4', 'D4', null,
+  'C4', 'E4', 'G4', 'Fs4', 'E4', null, null, null,
+];
+
+const DUNGEON_BAS = [
+  'E3', null, 'B3', null, 'E3', null, 'B3', null,
+  'D3', null, 'A3', null, 'D3', null, 'A3', null,
+  'C3', null, 'G3', null, 'B3', null, 'Fs4', null,
+  'C3', null, 'B3', null, 'E3', null, null, null,
+];
+
+const BOSS_MEL = [
+  'E5', 'E5', 'G5', 'E5', 'A5', 'G5', 'Fs5', 'E5',
+  'D5', 'D5', 'F5', 'D5', 'G5', 'F5', 'E5', 'D5',
+  'C5', 'E5', 'G5', 'B5', 'A5', 'G5', 'Fs5', 'E5',
+  'B4', 'E5', 'Fs5', 'G5', 'E5', null, null, null,
+];
+
+const BOSS_BAS = [
+  'E3', 'E3', 'G3', 'E3', 'A3', 'E3', 'G3', 'E3',
+  'D3', 'D3', 'F3', 'D3', 'G3', 'D3', 'F3', 'D3',
+  'C3', 'C3', 'G3', 'C3', 'B3', 'B3', 'Fs4', 'B3',
+  'E3', 'G3', 'A3', 'B3', 'E3', null, 'B3', null,
+];
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.muted = false;
+    this.bgmMode = 'overworld';
+    this.step = 0;
+    this.stepTimer = 0;
+    this.unlocked = false;
+  }
+
+  unlock() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      this.ctx = new AudioCtx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.25;
+      this.master.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    this.unlocked = true;
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.master && this.ctx) {
+      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.25, this.ctx.currentTime, 0.02);
+    }
+    return this.muted;
+  }
+
+  setBgmMode(mode) {
+    if (this.bgmMode !== mode) {
+      this.bgmMode = mode;
+      this.step = 0;
+    }
+  }
+
+  update(dt) {
+    if (!this.unlocked || !this.ctx || this.muted || this.bgmMode === 'off') return;
+    if (this.ctx.state !== 'running') return;
+    const dur = this.bgmMode === 'boss' ? 0.13 : this.bgmMode === 'dungeon' ? 0.21 : 0.165;
+    this.stepTimer += dt;
+    if (this.stepTimer >= dur) {
+      this.stepTimer -= dur;
+      this._stepBgm();
+      this.step = (this.step + 1) % 32;
+    }
+  }
+
+  _stepBgm() {
+    const mode = this.bgmMode;
+    const mel = mode === 'boss' ? BOSS_MEL : mode === 'dungeon' ? DUNGEON_MEL : OVERWORLD_MEL;
+    const bas = mode === 'boss' ? BOSS_BAS : mode === 'dungeon' ? DUNGEON_BAS : OVERWORLD_BAS;
+    const m = mel[this.step];
+    const b = bas[this.step];
+    if (m && NF[m]) {
+      this._tone({
+        freq: NF[m],
+        type: mode === 'dungeon' ? 'triangle' : mode === 'boss' ? 'sawtooth' : 'square',
+        dur: mode === 'dungeon' ? 0.22 : 0.14,
+        vol: mode === 'dungeon' ? 0.075 : 0.045,
+      });
+    }
+    if (b && NF[b]) {
+      this._tone({ freq: NF[b], type: 'triangle', dur: 0.17, vol: 0.08 });
+    }
+  }
+
+  _tone({ freq, freqEnd = null, type = 'square', dur = 0.12, vol = 0.15, delay = 0 }) {
+    if (!this.ctx || !this.master || this.muted) return;
+    const now = this.ctx.currentTime + delay;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (freqEnd !== null) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), now + dur);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(vol, now + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  }
+
+  _noise(dur = 0.08, vol = 0.14, filterFreq = 1600) {
+    if (!this.ctx || !this.master || this.muted) return;
+    const now = this.ctx.currentTime;
+    const count = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, count, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < count; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const flt = this.ctx.createBiquadFilter();
+    flt.type = 'bandpass';
+    flt.frequency.setValueAtTime(filterFreq, now);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(vol, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    src.connect(flt);
+    flt.connect(g);
+    g.connect(this.master);
+    src.start(now);
+  }
+
+  playSword() {
+    this._noise(0.075, 0.14, 2400);
+    this._tone({ freq: 520, freqEnd: 180, type: 'triangle', dur: 0.08, vol: 0.13 });
+  }
+
+  playSpinAttack() {
+    this._noise(0.16, 0.18, 2800);
+    this._tone({ freq: 340, freqEnd: 920, type: 'sawtooth', dur: 0.16, vol: 0.14 });
+  }
+
+  playSwordBeam() {
+    this._tone({ freq: 880, freqEnd: 1520, type: 'square', dur: 0.11, vol: 0.11 });
+  }
+
+  playRoll() {
+    this._noise(0.09, 0.1, 1100);
+  }
+
+  playBoomerang() {
+    this._tone({ freq: 420, freqEnd: 620, type: 'triangle', dur: 0.08, vol: 0.1 });
+  }
+
+  playBombExplode() {
+    this._noise(0.28, 0.25, 380);
+    this._tone({ freq: 130, freqEnd: 32, type: 'sawtooth', dur: 0.28, vol: 0.2 });
+  }
+
+  playHit() {
+    this._noise(0.06, 0.14, 1300);
+    this._tone({ freq: 260, freqEnd: 120, type: 'square', dur: 0.08, vol: 0.14 });
+  }
+
+  playHurt() {
+    this._tone({ freq: 290, freqEnd: 88, type: 'sawtooth', dur: 0.2, vol: 0.17 });
+    this._noise(0.12, 0.15, 700);
+  }
+
+  playRupee() {
+    this._tone({ freq: 988, type: 'square', dur: 0.06, vol: 0.1 });
+    this._tone({ freq: 1318, type: 'square', dur: 0.1, vol: 0.1, delay: 0.05 });
+  }
+
+  playHeart() {
+    this._tone({ freq: 660, freqEnd: 990, type: 'triangle', dur: 0.14, vol: 0.14 });
+  }
+
+  playSecret() {
+    const seq = ['G5', 'Fs5', 'Eb5', 'A4', 'Ab4', 'E5', 'Ab5', 'C6'];
+    seq.forEach((n, i) => this._tone({ freq: NF[n], type: 'square', dur: 0.11, vol: 0.12, delay: i * 0.075 }));
+  }
+
+  playChest() {
+    const seq = ['A4', 'Bb4', 'B4', 'C5'];
+    seq.forEach((n, i) =>
+      this._tone({ freq: NF[n], type: 'square', dur: i === 3 ? 0.36 : 0.11, vol: 0.13, delay: i * 0.1 })
+    );
+  }
+
+  playDoorOpen() {
+    this._noise(0.18, 0.16, 620);
+    this._tone({ freq: 180, freqEnd: 320, type: 'triangle', dur: 0.18, vol: 0.15 });
+  }
+
+  playVictory() {
+    const seq = ['D5', 'Fs5', 'A5', 'D6' in NF ? 'D6' : 'C6', 'A5', 'C6'];
+    const freqs = [587.33, 739.99, 880, 1174.66, 880, 1174.66];
+    freqs.forEach((f, i) =>
+      this._tone({ freq: f, type: 'square', dur: i === 5 ? 0.5 : 0.13, vol: 0.13, delay: i * 0.12 })
+    );
+  }
+}
+
+// === src/sprites.js ===
+// Procedural 16-bit Top-Down Zelda-Style Pixel Art Atlas
+
+function mk(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+function paint(grid, pal) {
+  const h = grid.length;
+  const w = grid[0].length;
+  const c = mk(w, h);
+  const ctx = c.getContext('2d');
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ch = grid[y][x];
+      if (ch === '.' || ch === ' ') continue;
+      if (pal[ch]) {
+        ctx.fillStyle = pal[ch];
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+  return c;
+}
+
+function flipH(src) {
+  const c = mk(src.width, src.height);
+  const ctx = c.getContext('2d');
+  ctx.translate(src.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(src, 0, 0);
+  return c;
+}
+function createAtlas() {
+  const atlas = { tiles: {}, hero: {}, enemies: {}, items: {}, npcs: {} };
+
+  // --- TILES (16x16) ---
+  atlas.tiles.grass = bakeGrass();
+  atlas.tiles.flowers = bakeFlowers();
+  atlas.tiles.path = bakePath();
+  atlas.tiles.tree = bakeTree();
+  atlas.tiles.bush = bakeBush();
+  atlas.tiles.rock = bakeRock();
+  atlas.tiles.cracked = bakeCrackedWall();
+  atlas.tiles.dungeonFloor = bakeDungeonFloor();
+  atlas.tiles.dungeonWall = bakeDungeonWall();
+  atlas.tiles.pushBlock = bakePushBlock();
+  atlas.tiles.switchOff = bakeSwitch(false);
+  atlas.tiles.switchOn = bakeSwitch(true);
+  atlas.tiles.lockedDoor = bakeLockedDoor();
+  atlas.tiles.bridge = bakeBridge();
+  atlas.tiles.stairsIn = bakeStairs(true);
+  atlas.tiles.stairsOut = bakeStairs(false);
+  atlas.tiles.sign = bakeSign();
+  atlas.tiles.pedestal = bakePedestal();
+
+  // --- HERO (16x16, 4 directions) ---
+  const heroPal = {
+    o: '#151c14',
+    G: '#2eb85c',
+    g: '#6de684',
+    d: '#1b7a3d',
+    Y: '#ffd859',
+    S: '#f7cfa0',
+    s: '#d9a473',
+    B: '#6e4228',
+    K: '#18141f',
+    W: '#ffffff',
+    C: '#3bb8ff',
+  };
+
+  const heroDown = [
+    '.....oooooo.....',
+    '....oGGGGGGoo...',
+    '...oGggggGGGGo..',
+    '...oYYYYYYYYYo..',
+    '...oYSSSSSSSYo..',
+    '...oSSKSSKSSSo..',
+    '...oSSSSSSSSSo..',
+    '....oGGGGGGGo...',
+    '..ooGGGGGGGGoo..',
+    '..oSGGYYYYGGSo..',
+    '..oSGGGGGGGGSo..',
+    '...oGddGGddGo...',
+    '...oGGGGGGGGo...',
+    '....oBBo.oBBo...',
+    '....oBBo.oBBo...',
+    '.....oo...oo....',
+  ];
+
+  const heroUp = [
+    '.....oooooo.....',
+    '....oGGGGGGoo...',
+    '...oGggggGGGGo..',
+    '...oGGGGGGGGGo..',
+    '...oGddddddGGo..',
+    '...oYYYYYYYYYo..',
+    '...oYBBBBBBBYo..',
+    '....oGGGGGGGo...',
+    '..ooGGGGGGGGoo..',
+    '..oSGGCCCCGGSo..',
+    '..oSGGCCCCGGSo..',
+    '...oGGYYYYGGo...',
+    '...oGGGGGGGGo...',
+    '....oBBo.oBBo...',
+    '....oBBo.oBBo...',
+    '.....oo...oo....',
+  ];
+
+  const heroRight = [
+    '....oooooo......',
+    '...oGGGGGGoo....',
+    '..oGggggGGGGo...',
+    '...oYYYYYYYYo...',
+    '...oYYSSSSSSo...',
+    '...oYYSSSKSSo...',
+    '....oSSSSSSSo...',
+    '....oGGGGGGoo...',
+    '...oGGGGGCCCoo..',
+    '...oGGYYGCCCSo..',
+    '...oGGGGGCCCSo..',
+    '....oGddddGGo...',
+    '....oGGGGGGoo...',
+    '....oBBo.oBBo...',
+    '....oBBo.oBBo...',
+    '.....oo...oo....',
+  ];
+
+  atlas.hero.down = paint(heroDown, heroPal);
+  atlas.hero.up = paint(heroUp, heroPal);
+  atlas.hero.right = paint(heroRight, heroPal);
+  atlas.hero.left = flipH(atlas.hero.right);
+
+  // --- ENEMIES ---
+  const slimeG = [
+    '................',
+    '................',
+    '....oooooooo....',
+    '..ooCCCCCCCCoo..',
+    '.oCCccccccccCCo.',
+    '.oCcCCCCCCCCcCo.',
+    'oCcCCWWCCWWCCcCo',
+    'oCcCCWKCCWKCCcCo',
+    'oCcCCCCCCCCCCcCo',
+    'oCCccDDDDDDccCCo',
+    '.oCCCDDDDDDCCCo.',
+    '..oooooooooooo..',
+    '................',
+    '................',
+  ];
+  atlas.enemies.slime = paint(slimeG, { o: '#102028', C: '#33c9a6', c: '#96ffdf', D: '#1b7a78', W: '#ffffff', K: '#102028' });
+
+  const octoG = [
+    '....oooooooo....',
+    '..ooRRRRRRRRoo..',
+    '.oRRrrrrrrrrRRo.',
+    '.oRrRRRRRRRRrRo.',
+    'oRRRRWWrrWWRRRRo',
+    'oRRRRWKrrWKRRRRo',
+    'oRRRRRRRRRRRRRRo',
+    'oRRRROOOOOORRRRo',
+    '.oRRROddddORRR..',
+    '.oRRROOOOOORRo..',
+    '..ooRRooRRoo....',
+    '..oRRo..oRRo....',
+    '...oo....oo.....',
+  ];
+  atlas.enemies.octorok = paint(octoG, { o: '#261016', R: '#e0424f', r: '#ff8a92', W: '#ffffff', K: '#1b1124', O: '#ffd06b', d: '#9c2432' });
+
+  const stalfosG = [
+    '....oooooooo....',
+    '...oWWWWWWWWo...',
+    '..oWWwwwwwwWWo..',
+    '..oWWKKWWKKWWo..',
+    '..oWWWWKKWWWWo..',
+    '...oWWWWWWWWo...',
+    '....ooWWWWoo....',
+    '..ooWWddddWWoo..',
+    '.oWWddWWWWddWWo.',
+    '.oWWddWWWWddWWo.',
+    '..ooWWddddWWoo..',
+    '...oWWooooWWo...',
+    '...oWWo..oWWo...',
+    '..oWWWo..oWWWo..',
+    '..oooo....oooo..',
+  ];
+  atlas.enemies.stalfos = paint(stalfosG, { o: '#161624', W: '#edf2ff', w: '#ffffff', d: '#8c96b5', K: '#161624' });
+
+  const batG = [
+    '................',
+    'oo............oo',
+    'oPPoo......ooPPo',
+    'oPPPooOOOOooPPPo',
+    '.oPPPPRRRRPPPPost',
+    '..oPPRWRWRWPPo..',
+    '...ooPRRRRPo....',
+    '.....oPPPPo.....',
+    '......oooo......',
+  ].map((r) => r.slice(0, 16));
+  atlas.enemies.bat = paint(batG, { o: '#150d24', P: '#7a42c4', O: '#b078ff', R: '#452278', W: '#ff5978' });
+
+  // --- NPC ELDER ---
+  const elderG = [
+    '....oooooooo....',
+    '...oBBBBBBBBo...',
+    '..oBbbbbbbbbBo..',
+    '..oBSSSSSSSSBo..',
+    '..oBSKSSSSKSBo..',
+    '..oBWWWWWWWWBo..',
+    '...oWWWWWWWWo...',
+    '..ooRRWWWWWRoo..',
+    '.oRRRRWWWWWRRRo.',
+    '.oRRRRRWWWRRRRo.',
+    '.oRRRRRRRRRRRRo.',
+    '..oRRYYYYYYRRo..',
+    '..oRRRRRRRRRRo..',
+    '...oBBBBBBBBo...',
+    '...oooo..oooo...',
+  ];
+  atlas.npcs.elder = paint(elderG, { o: '#1a1218', B: '#4a3340', b: '#785666', S: '#f5cda0', K: '#1a1218', W: '#eef4ff', R: '#b83249', Y: '#ffd561' });
+
+  // --- ITEMS ---
+  atlas.items.heartFull = paint(
+    [
+      '.ooo..ooo.',
+      'oRRRooRRRo',
+      'oRwwRRRRRo',
+      'oRwRRRRRRo',
+      'oRRRRRRRRo',
+      '.oRRRRRRo.',
+      '..oRRRRo..',
+      '...oRRo...',
+      '....oo....',
+    ],
+    { o: '#260b14', R: '#ff3b5c', w: '#ffc4d0' }
+  );
+  atlas.items.heartEmpty = paint(
+    [
+      '.ooo..ooo.',
+      'oDDDooDDDo',
+      'oDDDDDDDDo',
+      'oDDDDDDDDo',
+      'oDDDDDDDDo',
+      '.oDDDDDDo.',
+      '..oDDDDo..',
+      '...oDDo...',
+      '....oo....',
+    ],
+    { o: '#260b14', D: '#3a2c38' }
+  );
+  atlas.items.rupee = paint(
+    [
+      '...oo...',
+      '..oGGo..',
+      '.oGgGGo.',
+      'oGgWWGGo',
+      'oGgWWGGo',
+      'oGGddGGo',
+      '.oGddGo.',
+      '..oGGo..',
+      '...oo...',
+    ],
+    { o: '#0e2418', G: '#2de072', g: '#9effbe', W: '#ffffff', d: '#168c48' }
+  );
+  atlas.items.key = paint(
+    [
+      '..oooo..',
+      '.oYYYYo.',
+      '.oYooYo.',
+      '.oYYYYo.',
+      '..oYYo..',
+      '..oYYoo.',
+      '..oYYo..',
+      '..oYYoo.',
+      '...oo...',
+    ],
+    { o: '#2e1d08', Y: '#ffd54f' }
+  );
+  atlas.items.bomb = paint(
+    [
+      '.....oYo.',
+      '....oWo..',
+      '...ooo...',
+      '..oBBBo..',
+      '.oBBbBBo.',
+      '.oBBBBBo.',
+      '.oBBBBBo.',
+      '..oBBBo..',
+      '...ooo...',
+    ],
+    { o: '#101422', B: '#34466b', b: '#7898cc', W: '#ffd966', Y: '#ff5238' }
+  );
+  atlas.items.boomerang = paint(
+    [
+      '..ooooo..',
+      '.oCCCCCo.',
+      'oCCccCCCo',
+      'oCCooCCo.',
+      'oCCo..oo.',
+      'oCCo.....',
+      '.oo......',
+    ],
+    { o: '#102038', C: '#3ec7ff', c: '#d0f8ff' }
+  );
+  atlas.items.chestClosed = bakeChest(false);
+  atlas.items.chestOpen = bakeChest(true);
+
+  return atlas;
+}
+
+function bakeGrass() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#389948';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#47b354';
+  ctx.fillRect(2, 3, 2, 1);
+  ctx.fillRect(10, 6, 2, 1);
+  ctx.fillRect(5, 12, 2, 1);
+  ctx.fillStyle = '#2d7d3c';
+  ctx.fillRect(11, 13, 2, 1);
+  ctx.fillRect(3, 8, 1, 2);
+  return c;
+}
+
+function bakeFlowers() {
+  const c = bakeGrass();
+  const ctx = c.getContext('2d');
+  const pts = [[3, 4, '#fff07c'], [10, 5, '#ff8aa8'], [6, 11, '#a8e6ff'], [12, 11, '#fff07c']];
+  for (const [x, y, col] of pts) {
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, 2, 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, y, 1, 1);
+  }
+  return c;
+}
+
+function bakePath() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#c9a675';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#dfc092';
+  ctx.fillRect(2, 2, 3, 2);
+  ctx.fillRect(10, 9, 4, 2);
+  ctx.fillStyle = '#a88456';
+  ctx.fillRect(6, 6, 3, 2);
+  ctx.fillRect(2, 12, 3, 2);
+  return c;
+}
+
+function bakeTree() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1b4d28';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#5c3824';
+  ctx.fillRect(5, 11, 6, 5);
+  ctx.fillStyle = '#226b36';
+  ctx.fillRect(1, 2, 14, 11);
+  ctx.fillStyle = '#339449';
+  ctx.fillRect(2, 1, 12, 9);
+  ctx.fillStyle = '#58bf64';
+  ctx.fillRect(3, 2, 5, 4);
+  ctx.fillRect(9, 3, 4, 3);
+  return c;
+}
+
+function bakeBush() {
+  const c = bakeGrass();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#164526';
+  ctx.fillRect(2, 3, 12, 11);
+  ctx.fillStyle = '#278040';
+  ctx.fillRect(3, 2, 10, 10);
+  ctx.fillStyle = '#4ec464';
+  ctx.fillRect(4, 3, 4, 4);
+  ctx.fillRect(9, 4, 3, 3);
+  ctx.fillStyle = '#8ef096';
+  ctx.fillRect(5, 4, 2, 2);
+  return c;
+}
+
+function bakeRock() {
+  const c = bakeGrass();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2a2d3b';
+  ctx.fillRect(2, 3, 12, 11);
+  ctx.fillStyle = '#6c7287';
+  ctx.fillRect(3, 4, 10, 9);
+  ctx.fillStyle = '#9aa2ba';
+  ctx.fillRect(4, 4, 6, 4);
+  return c;
+}
+
+function bakeCrackedWall() {
+  const c = bakeDungeonWall();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#14121f';
+  ctx.fillRect(7, 2, 2, 5);
+  ctx.fillRect(5, 6, 4, 2);
+  ctx.fillRect(8, 8, 2, 6);
+  ctx.fillRect(10, 10, 3, 1);
+  ctx.fillStyle = '#ff9844';
+  ctx.fillRect(7, 7, 2, 2);
+  return c;
+}
+
+function bakeDungeonFloor() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2d3145';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#393e57';
+  ctx.fillRect(1, 1, 14, 14);
+  ctx.fillStyle = '#464c69';
+  ctx.fillRect(1, 1, 14, 1);
+  ctx.fillRect(1, 1, 1, 14);
+  return c;
+}
+
+function bakeDungeonWall() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#181a26';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#4c5270';
+  ctx.fillRect(1, 1, 6, 6);
+  ctx.fillRect(8, 1, 7, 6);
+  ctx.fillRect(1, 8, 10, 7);
+  ctx.fillRect(12, 8, 3, 7);
+  ctx.fillStyle = '#6c7499';
+  ctx.fillRect(1, 1, 6, 1);
+  ctx.fillRect(8, 1, 7, 1);
+  ctx.fillRect(1, 8, 10, 1);
+  return c;
+}
+
+function bakePushBlock() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1b1d2b';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#6a7496';
+  ctx.fillRect(1, 1, 14, 14);
+  ctx.fillStyle = '#9aa6cc';
+  ctx.fillRect(2, 2, 12, 2);
+  ctx.fillRect(2, 2, 2, 12);
+  ctx.fillStyle = '#3f4663';
+  ctx.fillRect(5, 5, 6, 6);
+  ctx.fillStyle = '#ffd561';
+  ctx.fillRect(7, 7, 2, 2);
+  return c;
+}
+
+function bakeSwitch(on) {
+  const c = bakeDungeonFloor();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1c29';
+  ctx.fillRect(3, 3, 10, 10);
+  ctx.fillStyle = on ? '#4af7c8' : '#d9534f';
+  ctx.fillRect(4, 4, 8, 8);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(6, 6, 4, 4);
+  return c;
+}
+
+function bakeLockedDoor() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#291a14';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#8a5230';
+  ctx.fillRect(1, 1, 14, 14);
+  ctx.fillStyle = '#ffd54f';
+  ctx.fillRect(6, 4, 4, 4);
+  ctx.fillRect(7, 8, 2, 4);
+  ctx.fillStyle = '#1f120c';
+  ctx.fillRect(7, 5, 2, 2);
+  return c;
+}
+
+function bakeBridge() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#693c20';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#9c5f34';
+  for (let y = 1; y < 16; y += 4) ctx.fillRect(1, y, 14, 3);
+  ctx.fillStyle = '#472512';
+  ctx.fillRect(0, 0, 2, 16);
+  ctx.fillRect(14, 0, 2, 16);
+  return c;
+}
+
+function bakeStairs(enter) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = enter ? '#10121c' : '#3a425e';
+  ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = enter ? `rgb(${95 - i * 18}, ${102 - i * 18}, ${130 - i * 18})` : `rgb(${70 + i * 24}, ${90 + i * 24}, ${115 + i * 20})`;
+    ctx.fillRect(2, 2 + i * 3, 12, 2);
+  }
+  return c;
+}
+
+function bakeSign() {
+  const c = bakeGrass();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#472814';
+  ctx.fillRect(7, 9, 2, 6);
+  ctx.fillRect(2, 3, 12, 7);
+  ctx.fillStyle = '#b57845';
+  ctx.fillRect(3, 4, 10, 5);
+  ctx.fillStyle = '#5c361a';
+  ctx.fillRect(4, 5, 8, 1);
+  ctx.fillRect(4, 7, 6, 1);
+  return c;
+}
+
+function bakePedestal() {
+  const c = bakeDungeonFloor();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#6e769c';
+  ctx.fillRect(2, 2, 12, 12);
+  ctx.fillStyle = '#ffd561';
+  ctx.fillRect(4, 4, 8, 8);
+  return c;
+}
+
+function bakeChest(open) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#24140c';
+  ctx.fillRect(1, 3, 14, 11);
+  ctx.fillStyle = open ? '#4f2c19' : '#b8682c';
+  ctx.fillRect(2, 4, 12, 9);
+  ctx.fillStyle = '#ffd54f';
+  ctx.fillRect(2, 7, 12, 2);
+  ctx.fillRect(7, 6, 2, 4);
+  if (open) {
+    ctx.fillStyle = '#180d08';
+    ctx.fillRect(3, 4, 10, 4);
+  }
+  return c;
+}
+
+// === src/webgl-post.js ===
+// Lightweight WebGL Post-Processing (True Bloom + Hit Chromatic Aberration)
+
+const VS = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main() {
+  vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5);
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+const FS = `
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uAberration;
+uniform float uEnabled;
+
+vec3 bright(vec2 uv) {
+  vec3 c = texture2D(uTex, clamp(uv, 0.001, 0.999)).rgb;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  return c * smoothstep(0.72, 0.96, l);
+}
+
+void main() {
+  if (uEnabled < 0.5) {
+    gl_FragColor = texture2D(uTex, vUv);
+    return;
+  }
+  vec2 d = vUv - vec2(0.5);
+  float dist = length(d);
+  vec2 dir = dist > 0.0001 ? d / dist : vec2(0.0);
+  float ca = uAberration * (0.003 + dist * 0.015);
+  vec3 base = vec3(
+    texture2D(uTex, clamp(vUv + dir * ca, 0.001, 0.999)).r,
+    texture2D(uTex, vUv).g,
+    texture2D(uTex, clamp(vUv - dir * ca, 0.001, 0.999)).b
+  );
+  vec2 px = uTexel * 2.2;
+  vec3 bloom = bright(vUv) * 0.24
+    + (bright(vUv + vec2(px.x, 0.0)) + bright(vUv - vec2(px.x, 0.0))
+     + bright(vUv + vec2(0.0, px.y)) + bright(vUv - vec2(0.0, px.y))) * 0.12
+    + (bright(vUv + px) + bright(vUv - px) + bright(vUv + vec2(px.x, -px.y)) + bright(vUv + vec2(-px.x, px.y))) * 0.07;
+
+  gl_FragColor = vec4(base + bloom * 0.30, 1.0);
+}
+`;
+class WebGLPost {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.enabled = true;
+    this.supported = false;
+    this.aberration = 0;
+
+    const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false });
+    if (!gl) return;
+    this.gl = gl;
+
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+    };
+    const vs = compile(gl.VERTEX_SHADER, VS);
+    const fs = compile(gl.FRAGMENT_SHADER, FS);
+    if (!vs || !fs) return;
+
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return;
+
+    this.program = p;
+    gl.useProgram(p);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(p, 'aPos');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    this.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    this.uTex = gl.getUniformLocation(p, 'uTex');
+    this.uTexel = gl.getUniformLocation(p, 'uTexel');
+    this.uAberration = gl.getUniformLocation(p, 'uAberration');
+    this.uEnabled = gl.getUniformLocation(p, 'uEnabled');
+    this.supported = true;
+  }
+
+  pulse(strength = 0.8) {
+    this.aberration = Math.max(this.aberration, strength);
+  }
+
+  update(dt) {
+    if (this.aberration > 0.002) this.aberration *= Math.pow(0.004, dt);
+    else this.aberration = 0;
+  }
+
+  render(srcCanvas) {
+    if (!this.supported) return false;
+    const gl = this.gl;
+    if (this.canvas.width !== srcCanvas.width || this.canvas.height !== srcCanvas.height) {
+      this.canvas.width = srcCanvas.width;
+      this.canvas.height = srcCanvas.height;
+    }
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.useProgram(this.program);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, srcCanvas);
+    gl.uniform1i(this.uTex, 0);
+    gl.uniform2f(this.uTexel, 1 / srcCanvas.width, 1 / srcCanvas.height);
+    gl.uniform1f(this.uAberration, this.aberration);
+    gl.uniform1f(this.uEnabled, this.enabled ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    return true;
+  }
+}
+
+// === src/world.js ===
+/*
+  Legend (20 cols x 12 rows):
+  . = Grass (Overworld) / Dungeon Floor (Dungeon)
+  p = Dirt Path
+  f = Flowers
+  T = Tree
+  ~ = Water
+  = = Bridge
+  b = Cuttable Bush
+  r = Rock
+  W = Dungeon Wall
+  X = Cracked Wall (Bombable!)
+  P = Pushable Stone Block
+  S = Floor Pressure Switch
+  D = Locked Door (uses Small Key)
+  t = Glowing Torch
+  v = Stairs Down (enter dungeon)
+  ^ = Stairs Up (exit dungeon)
+  i = Signpost
+  O = Pedestal
+*/
+
+const OVERWORLD_ROOMS = {
+  '0,1': {
+    name: '聖樹平原 — 旅途起點',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTppTTTTTTTTT',
+      'T..f....pppp....f..T',
+      'T..bb...p..p...bb..T',
+      'T.......p..p.......T',
+      'T..i....pppp.......T',
+      'T.......pppppppppppp',
+      'T..f....pppppppppppp',
+      'T.......p..........T',
+      'T..bbb..p....bbb...T',
+      'T..b.b..p....f.....T',
+      'T.......f..........T',
+      'TTTTTTTTTTTTTTTTTTTT',
+    ],
+    npc: { x: 10 * 16, y: 2 * 16 + 4, name: '長老', text: '勇者啊！東方森林藏著【迴力鏢】，北方裂岩可用【炸彈】炸開。收集鑰匙進入古神殿擊敗炎核守衛吧！' },
+    signText: '路標：往東 → 低語森林（寶箱）｜ 往北 ↑ 裂岩密道',
+    enemies: [{ type: 'slime', x: 14 * 16, y: 8 * 16 }],
+    chests: [],
+  },
+  '1,1': {
+    name: '低語森林 — 迴力鏢之林',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTppTTTTTTTTT',
+      'T..bbbb..pp..bbbb..T',
+      'T..b..b..pp..b..b..T',
+      'T..b..b..pp..b.....T',
+      'T........pp........T',
+      'pppppppppppppppppppp',
+      'pppppppppppppppppppp',
+      'T..f.....bb.....f..T',
+      'T..bb...bbbb...bb..T',
+      'T.......b..b.......T',
+      'T...f..........f...T',
+      'TTTTTTTTTTTTTTTTTTTT',
+    ],
+    enemies: [
+      { type: 'slime', x: 5 * 16, y: 3 * 16 },
+      { type: 'slime', x: 14 * 16, y: 8 * 16 },
+      { type: 'octorok', x: 15 * 16, y: 3 * 16 },
+    ],
+    chests: [{ id: 'forest_boomerang', x: 4 * 16, y: 2 * 16, reward: 'boomerang', text: '獲得【疾風迴力鏢】！按 Q 切換道具、E 投擲，可擊暈敵人並回收戰利品！' }],
+  },
+  '2,1': {
+    name: '湖畔遺跡 — 翠綠水域',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTppTTTTTTTTT',
+      'T~~~~~~~pppp~~~~~~~T',
+      'T~~~~~~~p..p~~~~~~~T',
+      'T~~~....p..p....~~~T',
+      'T~~~.bb.p..p.bb.~~~T',
+      'pppp====pppp====...T',
+      'pppp====pppp====...T',
+      'T~~~.f..p..p..f.~~~T',
+      'T~~~....p..p....~~~T',
+      'T~~~~~~~....~~~~~~~T',
+      'T~~~~~~~~~~~~~~~~~~T',
+      'TTTTTTTTTTTTTTTTTTTT',
+    ],
+    enemies: [
+      { type: 'octorok', x: 15 * 16, y: 3 * 16 },
+      { type: 'octorok', x: 15 * 16, y: 8 * 16 },
+    ],
+    chests: [{ id: 'lake_heart', x: 17 * 16, y: 5 * 16, reward: 'heart_container', text: '獲得【生命之心容器】！最大生命值永久 +1 顆心！' }],
+  },
+  '0,0': {
+    name: '裂岩密道 — 隱藏寶庫',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTTTTTTTTTTTT',
+      'TWWWWWWWXWWWWWWWW..T',
+      'TW.....W.W......W..T',
+      'TW.....W.W..bb..W..T',
+      'TW.....WXW......W..T',
+      'TWWWWWWW.WWWWWW.pppp',
+      'T........p......pppp',
+      'T..f.....p...r.....T',
+      'T..r.....p.........T',
+      'T........pp........T',
+      'T..bb....pp....f...T',
+      'TTTTTTTTTppTTTTTTTTT',
+    ],
+    signText: '裂開的石壁可以用【炸彈 (Q切換/E放置)】炸開！',
+    enemies: [{ type: 'slime', x: 12 * 16, y: 8 * 16 }],
+    chests: [{ id: 'ravine_key', x: 4 * 16, y: 2 * 16, reward: 'key', text: '獲得【古神殿小鑰匙】！可以用來開啟神殿深處的上鎖大門！' }],
+  },
+  '1,0': {
+    name: '古神殿前庭 — 聖殿入口',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTTTTTTTTTTTT',
+      'T..WWWWWWWWWWWWWW..T',
+      'T..W............W..T',
+      'T..W....t..t....W..T',
+      'T..W.....vv.....W..T',
+      'pppp....pppp....pppp',
+      'pppp....pppp....pppp',
+      'T..f....pppp....f..T',
+      'T..bb....pp....bb..T',
+      'T........pp........T',
+      'T...i....pp........T',
+      'TTTTTTTTTppTTTTTTTTT',
+    ],
+    signText: '古神殿入口：裡面棲息著炎核守衛，準備好迴力鏢與炸彈再往下走！',
+    enemies: [
+      { type: 'octorok', x: 5 * 16, y: 8 * 16 },
+      { type: 'slime', x: 14 * 16, y: 8 * 16 },
+    ],
+    chests: [],
+  },
+  '2,0': {
+    name: '東境石陣 — 補給聖壇',
+    isDungeon: false,
+    grid: [
+      'TTTTTTTTTTTTTTTTTTTT',
+      'T...r....f.....r...T',
+      'T..rrr..bbb...rrr..T',
+      'T..................T',
+      'T....b........b....T',
+      'pppppp........b....T',
+      'pppppp.............T',
+      'T....f...pp...f....T',
+      'T..r.....pp.....r..T',
+      'T........pp........T',
+      'T..bb....pp....bb..T',
+      'TTTTTTTTTppTTTTTTTTT',
+    ],
+    enemies: [{ type: 'stalfos', x: 12 * 16, y: 4 * 16 }],
+    chests: [{ id: 'east_bombs', x: 15 * 16, y: 3 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆！' }],
+  },
+};
+
+const DUNGEON_ROOMS = {
+  '0,1': {
+    name: '古神殿 1F — 幽暗玄關',
+    isDungeon: true,
+    grid: [
+      'WWWWWWWWW..WWWWWWWWW',
+      'W..t............t..W',
+      'W..................W',
+      'W....W........W....W',
+      'W..................W',
+      'W..................D',
+      'W..................D',
+      'W..................W',
+      'W....W........W....W',
+      'W........^^........W',
+      'W..t............t..W',
+      'WWWWWWWWWWWWWWWWWWWW',
+    ],
+    enemies: [
+      { type: 'stalfos', x: 6 * 16, y: 4 * 16 },
+      { type: 'stalfos', x: 13 * 16, y: 6 * 16 },
+    ],
+    chests: [],
+  },
+  '0,0': {
+    name: '古神殿 1F — 機關石室',
+    isDungeon: true,
+    grid: [
+      'WWWWWWWWWWWWWWWWWWWW',
+      'W..t............t..W',
+      'W..................W',
+      'W......S....P......W',
+      'W..................W',
+      'W....W........W....W',
+      'W....W........W....W',
+      'W..................W',
+      'W..................W',
+      'W..t............t..W',
+      'W..................W',
+      'WWWWWWWWW..WWWWWWWWW',
+    ],
+    puzzleChest: { id: 'dungeon_switch_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '解開機關！獲得【古神殿小鑰匙】！' },
+    enemies: [{ type: 'bat', x: 5 * 16, y: 6 * 16 }, { type: 'bat', x: 14 * 16, y: 6 * 16 }],
+    chests: [],
+  },
+  '1,1': {
+    name: '古神殿 1F — 暗影迴廊',
+    isDungeon: true,
+    grid: [
+      'WWWWWWWWWDDWWWWWWWWW',
+      'W..t............t..W',
+      'W....W........W....W',
+      'W..................W',
+      'W......WWXXWW......W',
+      '...................W',
+      '...................W',
+      'W..................W',
+      'W....W........W....W',
+      'W..t............t..W',
+      'W..................W',
+      'WWWWWWWWWWWWWWWWWWWW',
+    ],
+    enemies: [
+      { type: 'bat', x: 6 * 16, y: 3 * 16 },
+      { type: 'bat', x: 13 * 16, y: 3 * 16 },
+      { type: 'stalfos', x: 10 * 16, y: 7 * 16 },
+    ],
+    chests: [{ id: 'dungeon_bombs', x: 16 * 16, y: 2 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆，準備迎接炎核守衛！' }],
+  },
+  '1,0': {
+    name: '古神殿最深處 — 炎核聖壇 (BOSS)',
+    isDungeon: true,
+    grid: [
+      'WWWWWWWWWWWWWWWWWWWW',
+      'W..t............t..W',
+      'W..................W',
+      'W..................W',
+      'W..................W',
+      'W.........O........W',
+      'W..................W',
+      'W..................W',
+      'W..................W',
+      'W..t............t..W',
+      'W..................W',
+      'WWWWWWWWW..WWWWWWWWW',
+    ],
+    enemies: [],
+    hasBoss: true,
+    chests: [],
+  },
+};
+
+function parseGrid(grid, isDungeon) {
+  const tiles = new Uint8Array(ROOM_COLS * ROOM_ROWS);
+  for (let y = 0; y < ROOM_ROWS; y++) {
+    const row = grid[y];
+    for (let x = 0; x < ROOM_COLS; x++) {
+      const ch = row[x] || '.';
+      let t = isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS;
+      switch (ch) {
+        case '.': t = isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS; break;
+        case 'p': t = TILE.PATH; break;
+        case 'f': t = TILE.FLOWERS; break;
+        case 'T': t = TILE.TREE; break;
+        case '~': t = TILE.WATER; break;
+        case '=': t = TILE.BRIDGE; break;
+        case 'b': t = TILE.BUSH; break;
+        case 'r': t = TILE.ROCK; break;
+        case 'W': t = TILE.DUNGEON_WALL; break;
+        case 'X': t = TILE.CRACKED_WALL; break;
+        case 'P': t = TILE.PUSH_BLOCK; break;
+        case 'S': t = TILE.SWITCH; break;
+        case 'D': t = TILE.LOCKED_DOOR; break;
+        case 't': t = TILE.TORCH; break;
+        case 'v': t = TILE.STAIRS_IN; break;
+        case '^': t = TILE.STAIRS_OUT; break;
+        case 'i': t = TILE.SIGN; break;
+        case 'O': t = TILE.PEDESTAL; break;
+      }
+      tiles[y * ROOM_COLS + x] = t;
+    }
+  }
+  return tiles;
+}
+class World {
+  constructor() {
+    this.maps = {
+      overworld: {},
+      dungeon: {},
+    };
+    this.visited = new Set();
+
+    for (const [key, def] of Object.entries(OVERWORLD_ROOMS)) {
+      this.maps.overworld[key] = this._instantiateRoom(key, def);
+    }
+    for (const [key, def] of Object.entries(DUNGEON_ROOMS)) {
+      this.maps.dungeon[key] = this._instantiateRoom(key, def);
+    }
+  }
+
+  _instantiateRoom(key, def) {
+    return {
+      key,
+      name: def.name,
+      isDungeon: def.isDungeon,
+      tiles: parseGrid(def.grid, def.isDungeon),
+      npc: def.npc ? { ...def.npc } : null,
+      signText: def.signText || null,
+      enemySpawns: def.enemies.map((e) => ({ ...e })),
+      chests: def.chests.map((c) => ({ ...c, opened: false })),
+      puzzleChest: def.puzzleChest ? { ...def.puzzleChest, revealed: false, opened: false } : null,
+      switchSolved: false,
+      hasBoss: Boolean(def.hasBoss),
+      bossDefeated: false,
+      relicSpawned: false,
+    };
+  }
+
+  getRoom(zone, rx, ry) {
+    return this.maps[zone][`${rx},${ry}`] || null;
+  }
+
+  markVisited(zone, rx, ry) {
+    this.visited.add(`${zone}:${rx},${ry}`);
+  }
+
+  isSolidTile(t) {
+    return (
+      t === TILE.TREE ||
+      t === TILE.WATER ||
+      t === TILE.BUSH ||
+      t === TILE.ROCK ||
+      t === TILE.CRACKED_WALL ||
+      t === TILE.DUNGEON_WALL ||
+      t === TILE.PUSH_BLOCK ||
+      t === TILE.LOCKED_DOOR ||
+      t === TILE.TORCH ||
+      t === TILE.SIGN
+    );
+  }
+}
+
+// === src/game.js ===
+function overlaps(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+class ZeldaGame {
+  constructor(sound, onAreaChange, onHitPulse) {
+    this.sound = sound;
+    this.onAreaChange = onAreaChange;
+    this.onHitPulse = onHitPulse;
+
+    this.state = STATE.TITLE;
+    this.time = 0;
+    this.hitstop = 0;
+    this.shake = 0;
+    this.shakeX = 0;
+    this.shakeY = 0;
+    this.dialogueText = '';
+    this.dialogueSpeaker = '';
+
+    this.resetGame(false);
+  }
+
+  resetGame(startPlaying = true) {
+    this.world = new World();
+    this.zone = 'overworld';
+    this.rx = 0;
+    this.ry = 1;
+    this.room = this.world.getRoom(this.zone, this.rx, this.ry);
+    this.world.markVisited(this.zone, this.rx, this.ry);
+
+    this.player = {
+      x: 9 * 16 + 2,
+      y: 7 * 16,
+      w: 12,
+      h: 12,
+      dir: DIR.DOWN,
+      hp: 6,       // 3 full hearts (each heart = 2 half-hearts)
+      maxHp: 6,
+      rupees: 0,
+      keys: 0,
+      bombs: 4,
+      hasBoomerang: false,
+      equipped: 'bomb', // 'bomb' | 'boomerang'
+      attackTimer: 0,
+      attackCooldown: 0,
+      chargeTimer: 0,
+      spinTimer: 0,
+      rollTimer: 0,
+      rollDir: { x: 0, y: 1 },
+      invulnTimer: 0,
+      knockVx: 0,
+      knockVy: 0,
+      walkAnim: 0,
+      pushTimer: 0,
+    };
+
+    this.enemies = [];
+    this.projectiles = [];
+    this.bombs = [];
+    this.boomerang = null;
+    this.drops = [];
+    this.particles = [];
+    this.texts = [];
+    this.boss = null;
+    this.relic = null;
+    this.transition = null;
+
+    this._spawnRoomEntities();
+    if (this.onAreaChange) this.onAreaChange(this.room);
+    if (startPlaying) {
+      this.state = STATE.PLAYING;
+      this.sound.setBgmMode('overworld');
+    }
+  }
+
+  _spawnRoomEntities() {
+    this.enemies = [];
+    this.projectiles = [];
+    this.bombs = [];
+    this.boomerang = null;
+    this.drops = [];
+    this.boss = null;
+    this.relic = null;
+
+    for (const sp of this.room.enemySpawns) {
+      this.enemies.push({
+        type: sp.type,
+        x: sp.x,
+        y: sp.y,
+        w: 12,
+        h: 12,
+        hp: sp.type === 'stalfos' ? 3 : sp.type === 'octorok' ? 2 : 2,
+        vx: 0,
+        vy: 0,
+        dir: Math.floor(Math.random() * 4),
+        aiTimer: 0.6 + Math.random() * 0.8,
+        shootTimer: 1.5 + Math.random(),
+        stunTimer: 0,
+        hurtTimer: 0,
+        alive: true,
+      });
+    }
+
+    if (this.room.hasBoss && !this.room.bossDefeated) {
+      this.boss = {
+        x: 9 * 16,
+        y: 3 * 16,
+        w: 28,
+        h: 28,
+        hp: 10,
+        maxHp: 10,
+        vx: 0,
+        vy: 0,
+        state: 'patrol', // 'patrol' | 'charge' | 'ring'
+        timer: 1.5,
+        hurtTimer: 0,
+        stunTimer: 0,
+        alive: true,
+      };
+      this.sound.setBgmMode('boss');
+    } else if (this.room.relicSpawned) {
+      this.relic = { x: 10 * 16 - 6, y: 5 * 16 - 4, w: 12, h: 12 };
+    }
+  }
+
+  addShake(amt) {
+    this.shake = Math.max(this.shake, amt);
+  }
+
+  burst(x, y, count, color, speed = 80) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 18 + Math.random() * speed;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        life: 0.22 + Math.random() * 0.3,
+        maxLife: 0.52,
+        size: Math.random() < 0.35 ? 3 : 2,
+        color,
+      });
+    }
+  }
+
+  spawnText(x, y, text, color = '#ffe66d') {
+    this.texts.push({ x, y, vy: -24, text, color, life: 0.9, maxLife: 0.9 });
+  }
+
+  openDialogue(speaker, text) {
+    this.dialogueSpeaker = speaker;
+    this.dialogueText = text;
+    this.state = STATE.DIALOGUE;
+  }
+
+  getTile(room, tx, ty) {
+    if (tx < 0 || tx >= ROOM_COLS || ty < 0 || ty >= ROOM_ROWS) return TILE.DUNGEON_WALL;
+    return room.tiles[ty * ROOM_COLS + tx];
+  }
+
+  setTile(room, tx, ty, val) {
+    if (tx < 0 || tx >= ROOM_COLS || ty < 0 || ty >= ROOM_ROWS) return;
+    room.tiles[ty * ROOM_COLS + tx] = val;
+  }
+
+  update(dt, input) {
+    this.time += dt;
+    this.sound.update(dt);
+
+    if (this.shake > 0.1) {
+      this.shakeX = (Math.random() - 0.5) * this.shake * 2;
+      this.shakeY = (Math.random() - 0.5) * this.shake * 2;
+      this.shake *= Math.pow(0.001, dt);
+    } else {
+      this.shake = 0;
+      this.shakeX = 0;
+      this.shakeY = 0;
+    }
+
+    if (this.state === STATE.TITLE) {
+      if (input.startPressed || input.attackPressed) {
+        this.resetGame(true);
+      }
+      return;
+    }
+
+    if (this.state === STATE.DIALOGUE) {
+      if (input.attackPressed || input.startPressed || input.itemPressed) {
+        this.state = STATE.PLAYING;
+      }
+      return;
+    }
+
+    if (this.state === STATE.PAUSED) {
+      if (input.pausePressed) this.state = STATE.PLAYING;
+      if (input.restartPressed) this.resetGame(true);
+      return;
+    }
+
+    if (this.state === STATE.GAME_OVER || this.state === STATE.VICTORY) {
+      this._updateParticles(dt);
+      if (input.startPressed || input.attackPressed || input.restartPressed) {
+        this.resetGame(true);
+      }
+      return;
+    }
+
+    if (this.state === STATE.TRANSITION) {
+      this.transition.t += dt / 0.34;
+      if (this.transition.t >= 1) {
+        this.rx = this.transition.toRx;
+        this.ry = this.transition.toRy;
+        this.room = this.transition.toRoom;
+        this.world.markVisited(this.zone, this.rx, this.ry);
+        this.player.x = this.transition.endPx;
+        this.player.y = this.transition.endPy;
+        this.transition = null;
+        this.state = STATE.PLAYING;
+        this._spawnRoomEntities();
+        if (this.onAreaChange) this.onAreaChange(this.room);
+      }
+      return;
+    }
+
+    if (input.pausePressed) {
+      this.state = STATE.PAUSED;
+      return;
+    }
+    if (input.restartPressed) {
+      this.resetGame(true);
+      return;
+    }
+
+    if (this.hitstop > 0) {
+      this.hitstop -= dt;
+      return;
+    }
+
+    this._updatePlayer(dt, input);
+    this._updateBombs(dt);
+    this._updateBoomerang(dt);
+    this._updateProjectiles(dt);
+    this._updateEnemies(dt);
+    if (this.boss && this.boss.alive) this._updateBoss(dt);
+    this._updateDrops(dt);
+    this._updateParticles(dt);
+  }
+
+  _updatePlayer(dt, input) {
+    const p = this.player;
+    if (p.invulnTimer > 0) p.invulnTimer -= dt;
+    if (p.attackCooldown > 0) p.attackCooldown -= dt;
+    if (p.attackTimer > 0) p.attackTimer -= dt;
+    if (p.spinTimer > 0) p.spinTimer -= dt;
+
+    // Cycle equipped sub-item
+    if (input.cyclePressed) {
+      if (p.hasBoomerang) {
+        p.equipped = p.equipped === 'bomb' ? 'boomerang' : 'bomb';
+        this.spawnText(p.x + 6, p.y - 4, p.equipped === 'boomerang' ? '迴力鏢' : '炸彈', '#8effb0');
+      }
+    }
+
+    // Interact with NPC / Signpost / Chest when pressing attack
+    if (input.attackPressed && p.attackCooldown <= 0) {
+      if (this._tryInteract()) return;
+    }
+
+    // Sword Attack & Hold-to-Charge Spin Attack
+    if (input.attackPressed && p.attackCooldown <= 0 && p.rollTimer <= 0) {
+      p.attackTimer = 0.16;
+      p.attackCooldown = 0.24;
+      this.sound.playSword();
+      this._performSwordHit(false);
+      // Full HP Sword Beam!
+      if (p.hp >= p.maxHp) {
+        const dv = DIR_VEC[p.dir];
+        this.projectiles.push({
+          fromPlayer: true,
+          kind: 'beam',
+          x: p.x + 3 + dv.x * 10,
+          y: p.y + 3 + dv.y * 10,
+          w: 6,
+          h: 6,
+          vx: dv.x * 210,
+          vy: dv.y * 210,
+          life: 1.4,
+          alive: true,
+        });
+        this.sound.playSwordBeam();
+      }
+    }
+
+    if (input.attack && p.rollTimer <= 0) {
+      p.chargeTimer += dt;
+    } else {
+      if (p.chargeTimer >= 0.45) {
+        p.spinTimer = 0.24;
+        p.attackCooldown = 0.3;
+        this.sound.playSpinAttack();
+        this.addShake(3);
+        this.burst(p.x + 6, p.y + 6, 16, '#8effe0', 95);
+        this._performSwordHit(true);
+      }
+      p.chargeTimer = 0;
+    }
+
+    // Sub-item use (Bomb or Boomerang)
+    if (input.itemPressed && p.rollTimer <= 0) {
+      if (p.equipped === 'boomerang' && p.hasBoomerang && !this.boomerang) {
+        const dv = DIR_VEC[p.dir];
+        this.boomerang = {
+          x: p.x + 2,
+          y: p.y + 2,
+          w: 8,
+          h: 8,
+          vx: dv.x * 195,
+          vy: dv.y * 195,
+          returning: false,
+          dist: 0,
+        };
+        this.sound.playBoomerang();
+      } else if (p.equipped === 'bomb' && p.bombs > 0) {
+        p.bombs -= 1;
+        const dv = DIR_VEC[p.dir];
+        this.bombs.push({
+          x: p.x + dv.x * 10,
+          y: p.y + dv.y * 10,
+          fuse: 1.35,
+        });
+        this.spawnText(p.x + 6, p.y - 4, 'BOMB!', '#ffd085');
+      }
+    }
+
+    // Movement & Roll
+    let mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    let my = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    if (mx !== 0 || my !== 0) {
+      if (Math.abs(mx) >= Math.abs(my)) p.dir = mx > 0 ? DIR.RIGHT : DIR.LEFT;
+      else p.dir = my > 0 ? DIR.DOWN : DIR.UP;
+    }
+
+    if (input.rollPressed && p.rollTimer <= 0 && p.attackTimer <= 0) {
+      p.rollTimer = 0.2;
+      const len = Math.hypot(mx, my);
+      p.rollDir = len > 0 ? { x: mx / len, y: my / len } : { ...DIR_VEC[p.dir] };
+      this.sound.playRoll();
+      this.burst(p.x + 6, p.y + 10, 5, '#d8e8d0', 45);
+    }
+
+    let vx = 0;
+    let vy = 0;
+    if (p.rollTimer > 0) {
+      p.rollTimer -= dt;
+      vx = p.rollDir.x * 165;
+      vy = p.rollDir.y * 165;
+    } else if (p.attackTimer <= 0) {
+      const len = Math.hypot(mx, my) || 1;
+      const speed = p.chargeTimer > 0.25 ? 58 : 92;
+      vx = (mx / len) * speed;
+      vy = (my / len) * speed;
+      if (mx !== 0 || my !== 0) p.walkAnim += dt * 10;
+    }
+
+    vx += p.knockVx;
+    vy += p.knockVy;
+    p.knockVx *= Math.pow(0.002, dt);
+    p.knockVy *= Math.pow(0.002, dt);
+
+    // Move X & Y with corner slide
+    this._movePlayerAxis(vx * dt, 0, mx, 0, dt);
+    this._movePlayerAxis(0, vy * dt, 0, my, dt);
+
+    // Check Stairs & Relic
+    const centerTx = Math.floor((p.x + p.w * 0.5) / TILE_SIZE);
+    const centerTy = Math.floor((p.y + p.h * 0.5) / TILE_SIZE);
+    const under = this.getTile(this.room, centerTx, centerTy);
+    if (under === TILE.STAIRS_IN) {
+      this._enterZone('dungeon', 0, 1, 9 * 16 + 2, 7 * 16);
+      return;
+    } else if (under === TILE.STAIRS_OUT) {
+      this._enterZone('overworld', 1, 0, 9 * 16 + 2, 6 * 16);
+      return;
+    }
+
+    if (this.relic && overlaps(p, this.relic)) {
+      this.sound.playVictory();
+      this.sound.setBgmMode('off');
+      this.burst(this.relic.x + 6, this.relic.y + 6, 36, '#ffe066', 130);
+      this.state = STATE.VICTORY;
+      return;
+    }
+
+    // Check Room Edge Scroll Transitions
+    if (p.x < -3) this._startTransition(-1, 0);
+    else if (p.x + p.w > PLAY_W + 3) this._startTransition(1, 0);
+    else if (p.y < -3) this._startTransition(0, -1);
+    else if (p.y + p.h > PLAY_H + 3) this._startTransition(0, 1);
+  }
+
+  _movePlayerAxis(dx, dy, inputX, inputY, dt) {
+    const p = this.player;
+    p.x += dx;
+    p.y += dy;
+
+    const l = Math.floor(p.x / TILE_SIZE);
+    const r = Math.floor((p.x + p.w - 0.01) / TILE_SIZE);
+    const t = Math.floor(p.y / TILE_SIZE);
+    const b = Math.floor((p.y + p.h - 0.01) / TILE_SIZE);
+
+    let hit = false;
+    for (let ty = t; ty <= b; ty++) {
+      for (let tx = l; tx <= r; tx++) {
+        if (tx < 0 || tx >= ROOM_COLS || ty < 0 || ty >= ROOM_ROWS) continue;
+        const tile = this.getTile(this.room, tx, ty);
+        if (tile === TILE.LOCKED_DOOR && p.keys > 0) {
+          this._unlockDoor(tx, ty);
+          continue;
+        }
+        if (tile === TILE.PUSH_BLOCK && (inputX !== 0 || inputY !== 0)) {
+          p.pushTimer += dt;
+          if (p.pushTimer >= 0.22) {
+            p.pushTimer = 0;
+            this._tryPushBlock(tx, ty, inputX, inputY);
+          }
+        }
+        if (this.world.isSolidTile(tile)) {
+          hit = true;
+        }
+      }
+    }
+
+    if (hit) {
+      p.x -= dx;
+      p.y -= dy;
+    }
+  }
+
+  _unlockDoor(tx, ty) {
+    this.player.keys -= 1;
+    const floor = this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.PATH;
+    // Clear both adjacent tiles of the double door
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (this.getTile(this.room, tx + ox, ty + oy) === TILE.LOCKED_DOOR) {
+          this.setTile(this.room, tx + ox, ty + oy, floor);
+          this.burst((tx + ox) * 16 + 8, (ty + oy) * 16 + 8, 8, '#ffd54f', 70);
+        }
+      }
+    }
+    this.sound.playDoorOpen();
+    this.spawnText(tx * 16 + 8, ty * 16, 'UNLOCKED!', '#ffe066');
+  }
+
+  _tryPushBlock(tx, ty, dx, dy) {
+    const nx = tx + Math.sign(dx);
+    const ny = ty + Math.sign(dy);
+    const target = this.getTile(this.room, nx, ny);
+    if (target === TILE.DUNGEON_FLOOR || target === TILE.SWITCH) {
+      this.setTile(this.room, tx, ty, TILE.DUNGEON_FLOOR);
+      this.setTile(this.room, nx, ny, TILE.PUSH_BLOCK);
+      this.sound.playDoorOpen();
+      this.burst(nx * 16 + 8, ny * 16 + 8, 6, '#9aa6cc', 45);
+      if (target === TILE.SWITCH && !this.room.switchSolved) {
+        this.room.switchSolved = true;
+        this.sound.playSecret();
+        if (this.room.puzzleChest) {
+          this.room.puzzleChest.revealed = true;
+          this.room.chests.push(this.room.puzzleChest);
+          this.burst(this.room.puzzleChest.x + 8, this.room.puzzleChest.y + 8, 18, '#ffe066', 90);
+          this.spawnText(this.room.puzzleChest.x + 8, this.room.puzzleChest.y - 4, 'SECRET!', '#ffe066');
+        }
+      }
+    }
+  }
+
+  _tryInteract() {
+    const p = this.player;
+    const dv = DIR_VEC[p.dir];
+    const probe = { x: p.x + dv.x * 12, y: p.y + dv.y * 12, w: 12, h: 12 };
+
+    // NPC Elder
+    if (this.room.npc) {
+      const n = this.room.npc;
+      if (overlaps(probe, { x: n.x, y: n.y, w: 16, h: 16 })) {
+        this.openDialogue(n.name, n.text);
+        return true;
+      }
+    }
+
+    // Chests
+    for (const c of this.room.chests) {
+      if (!c.opened && overlaps(probe, { x: c.x, y: c.y, w: 16, h: 16 })) {
+        c.opened = true;
+        this.sound.playChest();
+        this.burst(c.x + 8, c.y + 4, 18, '#ffe066', 95);
+        if (c.reward === 'boomerang') {
+          p.hasBoomerang = true;
+          p.equipped = 'boomerang';
+        } else if (c.reward === 'key') {
+          p.keys += 1;
+        } else if (c.reward === 'bombs') {
+          p.bombs += 5;
+        } else if (c.reward === 'heart_container') {
+          p.maxHp += 2;
+          p.hp = p.maxHp;
+        }
+        this.openDialogue('寶箱', c.text);
+        return true;
+      }
+    }
+
+    // Signpost
+    const tx = Math.floor((probe.x + 6) / TILE_SIZE);
+    const ty = Math.floor((probe.y + 6) / TILE_SIZE);
+    if (this.getTile(this.room, tx, ty) === TILE.SIGN && this.room.signText) {
+      this.openDialogue('木牌', this.room.signText);
+      return true;
+    }
+
+    return false;
+  }
+
+  _performSwordHit(isSpin) {
+    const p = this.player;
+    let box;
+    if (isSpin) {
+      box = { x: p.x - 16, y: p.y - 16, w: p.w + 32, h: p.h + 32 };
+    } else {
+      const dv = DIR_VEC[p.dir];
+      box = {
+        x: p.x + dv.x * 12 - (dv.x === 0 ? 6 : 2),
+        y: p.y + dv.y * 12 - (dv.y === 0 ? 6 : 2),
+        w: dv.x === 0 ? 24 : 18,
+        h: dv.y === 0 ? 24 : 18,
+      };
+    }
+
+    // Cut bushes in sword hitbox
+    const l = Math.max(0, Math.floor(box.x / TILE_SIZE));
+    const r = Math.min(ROOM_COLS - 1, Math.floor((box.x + box.w) / TILE_SIZE));
+    const t = Math.max(0, Math.floor(box.y / TILE_SIZE));
+    const b = Math.min(ROOM_ROWS - 1, Math.floor((box.y + box.h) / TILE_SIZE));
+    for (let ty = t; ty <= b; ty++) {
+      for (let tx = l; tx <= r; tx++) {
+        if (this.getTile(this.room, tx, ty) === TILE.BUSH) {
+          this.setTile(this.room, tx, ty, TILE.GRASS);
+          this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#58df72', 75);
+          this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4);
+        }
+      }
+    }
+
+    // Hit Enemies
+    const dmg = isSpin ? 2 : 1;
+    for (const e of this.enemies) {
+      if (e.alive && overlaps(box, e)) {
+        this._damageEnemy(e, dmg, e.x - p.x, e.y - p.y);
+      }
+    }
+
+    // Hit Boss
+    if (this.boss && this.boss.alive && overlaps(box, this.boss)) {
+      this._damageBoss(dmg);
+    }
+  }
+
+  _maybeSpawnDrop(x, y) {
+    const roll = Math.random();
+    if (roll < 0.26) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
+    else if (roll < 0.44) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
+    else if (roll < 0.54) this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+  }
+
+  _damageEnemy(e, dmg, kx, ky) {
+    if (e.hurtTimer > 0) return;
+    e.hp -= dmg;
+    e.hurtTimer = 0.22;
+    const len = Math.hypot(kx, ky) || 1;
+    e.vx = (kx / len) * 140;
+    e.vy = (ky / len) * 140;
+    this.sound.playHit();
+    this.hitstop = 0.03;
+    this.addShake(2.5);
+    this.burst(e.x + 6, e.y + 6, 8, '#fff099', 80);
+    if (e.hp <= 0) {
+      e.alive = false;
+      this.burst(e.x + 6, e.y + 6, 14, '#ff7582', 100);
+      this._maybeSpawnDrop(e.x + 2, e.y + 2);
+    }
+  }
+
+  _damageBoss(dmg) {
+    const b = this.boss;
+    if (!b || !b.alive || b.hurtTimer > 0) return;
+    b.hp -= dmg;
+    b.hurtTimer = 0.45;
+    this.sound.playHit();
+    this.hitstop = 0.05;
+    this.addShake(6);
+    if (this.onHitPulse) this.onHitPulse(0.9);
+    this.burst(b.x + 14, b.y + 14, 18, '#ffae38', 120);
+    this.spawnText(b.x + 14, b.y - 4, `-${dmg}`, '#ffe066');
+
+    if (b.hp <= 0) {
+      b.alive = false;
+      this.room.bossDefeated = true;
+      this.room.relicSpawned = true;
+      this.relic = { x: 10 * 16 - 6, y: 5 * 16 - 4, w: 12, h: 12 };
+      this.sound.playSecret();
+      this.addShake(12);
+      this.burst(b.x + 14, b.y + 14, 42, '#ffe066', 150);
+      this.spawnText(b.x + 14, b.y - 8, '炎核守衛已擊敗！', '#fff3a8');
+    }
+  }
+
+  _hurtPlayer(kx, ky) {
+    const p = this.player;
+    if (p.invulnTimer > 0 || p.rollTimer > 0) return;
+    p.hp -= 1;
+    p.invulnTimer = 1.1;
+    const len = Math.hypot(kx, ky) || 1;
+    p.knockVx = (kx / len) * 160;
+    p.knockVy = (ky / len) * 160;
+    this.sound.playHurt();
+    this.addShake(5);
+    if (this.onHitPulse) this.onHitPulse(0.75);
+    this.burst(p.x + 6, p.y + 6, 10, '#ff4265', 90);
+    if (p.hp <= 0) {
+      this.state = STATE.GAME_OVER;
+      this.sound.setBgmMode('off');
+    }
+  }
+
+  _updateBombs(dt) {
+    for (let i = this.bombs.length - 1; i >= 0; i--) {
+      const b = this.bombs[i];
+      b.fuse -= dt;
+      if (b.fuse <= 0) {
+        this.bombs.splice(i, 1);
+        this.sound.playBombExplode();
+        this.addShake(8);
+        if (this.onHitPulse) this.onHitPulse(1.0);
+        this.burst(b.x + 6, b.y + 6, 26, '#ff9838', 135);
+        this.burst(b.x + 6, b.y + 6, 14, '#fff3a8', 95);
+
+        // Shatter nearby Cracked Walls & Rocks
+        const cx = Math.floor((b.x + 6) / TILE_SIZE);
+        const cy = Math.floor((b.y + 6) / TILE_SIZE);
+        const floor = this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.PATH;
+        let brokeSecret = false;
+        for (let oy = -2; oy <= 2; oy++) {
+          for (let ox = -2; ox <= 2; ox++) {
+            const t = this.getTile(this.room, cx + ox, cy + oy);
+            if (t === TILE.CRACKED_WALL || t === TILE.ROCK || t === TILE.BUSH) {
+              this.setTile(this.room, cx + ox, cy + oy, floor);
+              if (t === TILE.CRACKED_WALL) brokeSecret = true;
+            }
+          }
+        }
+        if (brokeSecret) this.sound.playSecret();
+
+        const blast = { x: b.x - 22, y: b.y - 22, w: 56, h: 56 };
+        for (const e of this.enemies) {
+          if (e.alive && overlaps(blast, e)) this._damageEnemy(e, 3, e.x - b.x, e.y - b.y);
+        }
+        if (this.boss && this.boss.alive && overlaps(blast, this.boss)) {
+          this.boss.stunTimer = 1.6;
+          this._damageBoss(2);
+        }
+      }
+    }
+  }
+
+  _updateBoomerang(dt) {
+    const bm = this.boomerang;
+    if (!bm) return;
+    const p = this.player;
+    if (!bm.returning) {
+      bm.x += bm.vx * dt;
+      bm.y += bm.vy * dt;
+      bm.dist += Math.hypot(bm.vx, bm.vy) * dt;
+      const tx = Math.floor((bm.x + 4) / TILE_SIZE);
+      const ty = Math.floor((bm.y + 4) / TILE_SIZE);
+      const tile = this.getTile(this.room, tx, ty);
+      if (bm.dist > 110 || tile === TILE.TREE || tile === TILE.DUNGEON_WALL || tile === TILE.ROCK) {
+        bm.returning = true;
+      }
+    } else {
+      const dx = p.x + 2 - bm.x;
+      const dy = p.y + 2 - bm.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 10) {
+        this.boomerang = null;
+        return;
+      }
+      bm.x += (dx / d) * 230 * dt;
+      bm.y += (dy / d) * 230 * dt;
+    }
+
+    // Pull drops & stun enemies
+    for (const drop of this.drops) {
+      if (overlaps(bm, drop)) {
+        drop.x = bm.x;
+        drop.y = bm.y;
+      }
+    }
+    for (const e of this.enemies) {
+      if (e.alive && overlaps(bm, e)) {
+        e.stunTimer = 2.0;
+        bm.returning = true;
+        this.sound.playHit();
+        this.burst(e.x + 6, e.y + 6, 6, '#5ce6ff', 60);
+      }
+    }
+    if (this.boss && this.boss.alive && overlaps(bm, this.boss)) {
+      this.boss.stunTimer = 1.4;
+      bm.returning = true;
+      this.sound.playHit();
+      this.spawnText(this.boss.x + 14, this.boss.y - 4, 'STUNNED!', '#7eeeff');
+    }
+  }
+
+  _updateProjectiles(dt) {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      pr.life -= dt;
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+      if (pr.life <= 0 || pr.x < 0 || pr.x > PLAY_W || pr.y < 0 || pr.y > PLAY_H) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      const tx = Math.floor((pr.x + 3) / TILE_SIZE);
+      const ty = Math.floor((pr.y + 3) / TILE_SIZE);
+      if (this.world.isSolidTile(this.getTile(this.room, tx, ty)) && this.getTile(this.room, tx, ty) !== TILE.WATER) {
+        this.burst(pr.x + 3, pr.y + 3, 5, '#ffe680', 55);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (pr.fromPlayer) {
+        for (const e of this.enemies) {
+          if (e.alive && overlaps(pr, e)) {
+            this._damageEnemy(e, 1, pr.vx, pr.vy);
+            pr.life = 0;
+          }
+        }
+        if (this.boss && this.boss.alive && overlaps(pr, this.boss)) {
+          this._damageBoss(1);
+          pr.life = 0;
+        }
+      } else if (overlaps(pr, this.player)) {
+        this._hurtPlayer(pr.vx, pr.vy);
+        this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  _updateEnemies(dt) {
+    const p = this.player;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (e.hurtTimer > 0) e.hurtTimer -= dt;
+      if (e.stunTimer > 0) {
+        e.stunTimer -= dt;
+        continue;
+      }
+
+      e.aiTimer -= dt;
+      if (e.aiTimer <= 0) {
+        e.aiTimer = 0.7 + Math.random() * 1.0;
+        if (e.type === 'stalfos' || e.type === 'bat') {
+          const dx = p.x - e.x;
+          const dy = p.y - e.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const sp = e.type === 'bat' ? 56 : 44;
+          e.vx = (dx / len) * sp;
+          e.vy = (dy / len) * sp;
+        } else {
+          e.dir = Math.floor(Math.random() * 4);
+          const dv = DIR_VEC[e.dir];
+          e.vx = dv.x * 36;
+          e.vy = dv.y * 36;
+        }
+      }
+
+      if (e.type === 'octorok') {
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = 2.0 + Math.random();
+          const dx = p.x - e.x;
+          const dy = p.y - e.y;
+          const len = Math.hypot(dx, dy) || 1;
+          this.projectiles.push({
+            fromPlayer: false,
+            kind: 'rock',
+            x: e.x + 3,
+            y: e.y + 3,
+            w: 6,
+            h: 6,
+            vx: (dx / len) * 110,
+            vy: (dy / len) * 110,
+            life: 2.2,
+            alive: true,
+          });
+        }
+      }
+
+      const nx = e.x + e.vx * dt;
+      const ny = e.y + e.vy * dt;
+      const canPass = (x, y) => {
+        if (e.type === 'bat') return x > 16 && x < PLAY_W - 28 && y > 16 && y < PLAY_H - 28;
+        const tx = Math.floor((x + 6) / TILE_SIZE);
+        const ty = Math.floor((y + 6) / TILE_SIZE);
+        return !this.world.isSolidTile(this.getTile(this.room, tx, ty));
+      };
+      if (canPass(nx, e.y)) e.x = nx;
+      else e.vx = -e.vx;
+      if (canPass(e.x, ny)) e.y = ny;
+      else e.vy = -e.vy;
+
+      if (overlaps(e, p)) {
+        this._hurtPlayer(p.x - e.x, p.y - e.y);
+      }
+    }
+  }
+
+  _updateBoss(dt) {
+    const b = this.boss;
+    const p = this.player;
+    if (b.hurtTimer > 0) b.hurtTimer -= dt;
+    if (b.stunTimer > 0) {
+      b.stunTimer -= dt;
+      return;
+    }
+
+    b.timer -= dt;
+    if (b.timer <= 0) {
+      if (b.state === 'patrol') {
+        b.state = 'charge';
+        b.timer = 0.9;
+        const dx = p.x - b.x;
+        const dy = p.y - b.y;
+        const len = Math.hypot(dx, dy) || 1;
+        b.vx = (dx / len) * 125;
+        b.vy = (dy / len) * 125;
+      } else if (b.state === 'charge') {
+        b.state = 'ring';
+        b.timer = 1.4;
+        b.vx = 0;
+        b.vy = 0;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + this.time;
+          this.projectiles.push({
+            fromPlayer: false,
+            kind: 'fire',
+            x: b.x + 11,
+            y: b.y + 11,
+            w: 6,
+            h: 6,
+            vx: Math.cos(a) * 95,
+            vy: Math.sin(a) * 95,
+            life: 2.5,
+            alive: true,
+          });
+        }
+        this.sound.playBombExplode();
+      } else {
+        b.state = 'patrol';
+        b.timer = 1.5;
+        b.vx = (Math.random() - 0.5) * 70;
+        b.vy = (Math.random() - 0.5) * 70;
+      }
+    }
+
+    b.x = Math.max(20, Math.min(PLAY_W - 48, b.x + b.vx * dt));
+    b.y = Math.max(20, Math.min(PLAY_H - 48, b.y + b.vy * dt));
+
+    if (overlaps(b, p)) {
+      this._hurtPlayer(p.x - b.x, p.y - b.y);
+    }
+  }
+
+  _updateDrops(dt) {
+    const p = this.player;
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      if (overlaps(d, p)) {
+        if (d.kind === 'rupee') {
+          p.rupees += 5;
+          this.sound.playRupee();
+          this.spawnText(d.x, d.y, '+5', '#6df598');
+        } else if (d.kind === 'heart') {
+          p.hp = Math.min(p.maxHp, p.hp + 2);
+          this.sound.playHeart();
+          this.spawnText(d.x, d.y, 'HP+', '#ff758f');
+        } else if (d.kind === 'bomb') {
+          p.bombs += 2;
+          this.sound.playRupee();
+          this.spawnText(d.x, d.y, 'BOMB +2', '#ffd085');
+        }
+        this.drops.splice(i, 1);
+      }
+    }
+  }
+
+  _updateParticles(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const pt = this.particles[i];
+      pt.life -= dt;
+      if (pt.life <= 0) this.particles.splice(i, 1);
+      else {
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.vx *= 0.92;
+        pt.vy *= 0.92;
+      }
+    }
+    for (let i = this.texts.length - 1; i >= 0; i--) {
+      const t = this.texts[i];
+      t.life -= dt;
+      if (t.life <= 0) this.texts.splice(i, 1);
+      else t.y += t.vy * dt;
+    }
+  }
+
+  _startTransition(dx, dy) {
+    const nrx = this.rx + dx;
+    const nry = this.ry + dy;
+    const target = this.world.getRoom(this.zone, nrx, nry);
+    if (!target) {
+      this.player.x = Math.max(0, Math.min(PLAY_W - this.player.w, this.player.x));
+      this.player.y = Math.max(0, Math.min(PLAY_H - this.player.h, this.player.y));
+      return;
+    }
+    const endPx = dx < 0 ? PLAY_W - 18 : dx > 0 ? 6 : this.player.x;
+    const endPy = dy < 0 ? PLAY_H - 18 : dy > 0 ? 6 : this.player.y;
+    this.transition = {
+      fromRoom: this.room,
+      toRoom: target,
+      toRx: nrx,
+      toRy: nry,
+      dx,
+      dy,
+      t: 0,
+      endPx,
+      endPy,
+    };
+    this.state = STATE.TRANSITION;
+  }
+
+  _enterZone(zone, rx, ry, px, py) {
+    this.zone = zone;
+    this.rx = rx;
+    this.ry = ry;
+    this.room = this.world.getRoom(zone, rx, ry);
+    this.world.markVisited(zone, rx, ry);
+    this.player.x = px;
+    this.player.y = py;
+    this.sound.playDoorOpen();
+    this.sound.setBgmMode(zone === 'dungeon' ? 'dungeon' : 'overworld');
+    this._spawnRoomEntities();
+    if (this.onAreaChange) this.onAreaChange(this.room);
+  }
+}
+
+// === src/renderer.js ===
+class ZeldaRenderer {
+  constructor(canvas, atlas, displayCanvas = null) {
+    this.canvas = canvas;
+    this.displayCanvas = displayCanvas || canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.atlas = atlas;
+    this.scale = 3;
+    this.resize();
+  }
+
+  resize() {
+    const rect = this.displayCanvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(960, Math.round((rect.width || 960) * dpr));
+    const h = Math.max(600, Math.round((rect.height || 600) * dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    this.scaleX = this.canvas.width / VIEW_W;
+    this.scaleY = this.canvas.height / VIEW_H;
+  }
+
+  render(game) {
+    const ctx = this.ctx;
+
+    // --- PASS 1: CRISP 16-BIT PIXEL WORLD ---
+    ctx.save();
+    ctx.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.fillStyle = '#0c1018';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    // Clip playfield below HUD
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HUD_H, PLAY_W, PLAY_H);
+    ctx.clip();
+    ctx.translate(Math.round(game.shakeX), HUD_H + Math.round(game.shakeY));
+
+    if (game.state === STATE.TRANSITION && game.transition) {
+      const tr = game.transition;
+      const ease = 1 - Math.pow(1 - tr.t, 3);
+      const ox = -tr.dx * PLAY_W * ease;
+      const oy = -tr.dy * PLAY_H * ease;
+      ctx.save();
+      ctx.translate(Math.round(ox), Math.round(oy));
+      this._drawRoomTiles(ctx, tr.fromRoom, game.time);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(Math.round(ox + tr.dx * PLAY_W), Math.round(oy + tr.dy * PLAY_H));
+      this._drawRoomTiles(ctx, tr.toRoom, game.time);
+      ctx.restore();
+    } else {
+      this._drawRoomTiles(ctx, game.room, game.time);
+      this._drawRoomEntities(ctx, game);
+      this._drawHero(ctx, game);
+      this._drawEffects(ctx, game);
+      if (game.room.isDungeon) {
+        this._drawDungeonLighting(ctx, game);
+      }
+    }
+
+    ctx.restore();
+    ctx.restore();
+
+    // --- PASS 2: NATIVE HI-RES UI, HUD, MINIMAP & DIALOGUE (960x648 logical) ---
+    const uiSx = this.canvas.width / 960;
+    const uiSy = this.canvas.height / 648;
+    ctx.save();
+    ctx.setTransform(uiSx, 0, 0, uiSy, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+
+    this._drawFloatingTextsHD(ctx, game);
+    this._drawZeldaHUD(ctx, game);
+
+    if (game.state === STATE.TITLE) this._drawTitle(ctx, game);
+    else if (game.state === STATE.DIALOGUE) this._drawDialogue(ctx, game);
+    else if (game.state === STATE.PAUSED) this._drawCenterBanner(ctx, 'PAUSED 暫停中', '[ESC / P] 繼續    [R] 重新開始');
+    else if (game.state === STATE.GAME_OVER) this._drawCenterBanner(ctx, '勇者倒下了⋯⋯', '按 [ENTER / SPACE] 重新展開冒險', '#ff647e');
+    else if (game.state === STATE.VICTORY) this._drawVictory(ctx, game);
+
+    ctx.restore();
+  }
+
+  _drawRoomTiles(ctx, room, time) {
+    const t = this.atlas.tiles;
+    for (let y = 0; y < ROOM_ROWS; y++) {
+      for (let x = 0; x < ROOM_COLS; x++) {
+        const tile = room.tiles[y * ROOM_COLS + x];
+        const px = x * TILE_SIZE;
+        const py = y * TILE_SIZE;
+        switch (tile) {
+          case TILE.GRASS: ctx.drawImage(t.grass, px, py); break;
+          case TILE.FLOWERS: ctx.drawImage(t.flowers, px, py); break;
+          case TILE.PATH: ctx.drawImage(t.path, px, py); break;
+          case TILE.TREE: ctx.drawImage(t.tree, px, py); break;
+          case TILE.BUSH: ctx.drawImage(t.bush, px, py); break;
+          case TILE.ROCK: ctx.drawImage(t.rock, px, py); break;
+          case TILE.CRACKED_WALL: ctx.drawImage(t.cracked, px, py); break;
+          case TILE.DUNGEON_FLOOR: ctx.drawImage(t.dungeonFloor, px, py); break;
+          case TILE.DUNGEON_WALL: ctx.drawImage(t.dungeonWall, px, py); break;
+          case TILE.PUSH_BLOCK: ctx.drawImage(t.pushBlock, px, py); break;
+          case TILE.SWITCH: ctx.drawImage(room.switchSolved ? t.switchOn : t.switchOff, px, py); break;
+          case TILE.LOCKED_DOOR: ctx.drawImage(t.lockedDoor, px, py); break;
+          case TILE.BRIDGE: ctx.drawImage(t.bridge, px, py); break;
+          case TILE.STAIRS_IN: ctx.drawImage(t.stairsIn, px, py); break;
+          case TILE.STAIRS_OUT: ctx.drawImage(t.stairsOut, px, py); break;
+          case TILE.SIGN: ctx.drawImage(t.sign, px, py); break;
+          case TILE.PEDESTAL: ctx.drawImage(t.pedestal, px, py); break;
+          case TILE.WATER: {
+            ctx.fillStyle = '#247bb8';
+            ctx.fillRect(px, py, 16, 16);
+            ctx.fillStyle = '#52b8f0';
+            const shift = Math.floor(Math.sin(time * 3 + x + y) * 2);
+            ctx.fillRect(px + 2 + shift, py + 4, 5, 1);
+            ctx.fillRect(px + 8 - shift, py + 11, 5, 1);
+            break;
+          }
+          case TILE.TORCH: {
+            ctx.drawImage(room.isDungeon ? t.dungeonFloor : t.path, px, py);
+            ctx.fillStyle = '#473124';
+            ctx.fillRect(px + 6, py + 7, 4, 8);
+            const fl = Math.sin(time * 18 + x) > 0;
+            ctx.fillStyle = fl ? '#ff9838' : '#ff5e2e';
+            ctx.fillRect(px + 5, py + 2, 6, 6);
+            ctx.fillStyle = '#fff3a8';
+            ctx.fillRect(px + 6, py + 3, 4, 3);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  _drawRoomEntities(ctx, game) {
+    const { room, atlas } = game;
+
+    // Chests
+    for (const c of room.chests) {
+      ctx.drawImage(c.opened ? this.atlas.items.chestOpen : this.atlas.items.chestClosed, c.x, c.y);
+    }
+
+    // Elder NPC
+    if (room.npc) {
+      ctx.drawImage(this.atlas.npcs.elder, room.npc.x, room.npc.y);
+    }
+
+    // Drops
+    for (const d of game.drops) {
+      const bob = Math.sin(game.time * 6 + d.x) * 1.5;
+      const spr = d.kind === 'rupee' ? this.atlas.items.rupee : d.kind === 'heart' ? this.atlas.items.heartFull : this.atlas.items.bomb;
+      ctx.drawImage(spr, Math.round(d.x), Math.round(d.y + bob));
+    }
+
+    // Bombs
+    for (const b of game.bombs) {
+      const flash = b.fuse < 0.5 && Math.floor(game.time * 22) % 2 === 0;
+      ctx.drawImage(this.atlas.items.bomb, Math.round(b.x), Math.round(b.y));
+      if (flash) {
+        ctx.fillStyle = 'rgba(255, 100, 80, 0.7)';
+        ctx.fillRect(Math.round(b.x), Math.round(b.y), 9, 9);
+      }
+    }
+
+    // Boomerang
+    if (game.boomerang) {
+      ctx.save();
+      ctx.translate(game.boomerang.x + 4, game.boomerang.y + 4);
+      ctx.rotate(game.time * 18);
+      ctx.drawImage(this.atlas.items.boomerang, -4, -4);
+      ctx.restore();
+    }
+
+    // Enemies
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      if (e.hurtTimer > 0 && Math.floor(game.time * 24) % 2 === 0) continue;
+      const spr =
+        e.type === 'octorok'
+          ? this.atlas.enemies.octorok
+          : e.type === 'stalfos'
+          ? this.atlas.enemies.stalfos
+          : e.type === 'bat'
+          ? this.atlas.enemies.bat
+          : this.atlas.enemies.slime;
+      const jitter = e.stunTimer > 0 ? Math.sin(game.time * 40) * 1.5 : 0;
+      ctx.drawImage(spr, Math.round(e.x - 2 + jitter), Math.round(e.y - 2));
+    }
+
+    // Boss (Ignis Guardian)
+    if (game.boss && game.boss.alive) {
+      const b = game.boss;
+      const flash = b.hurtTimer > 0 && Math.floor(game.time * 24) % 2 === 0;
+      const bx = Math.round(b.x);
+      const by = Math.round(b.y);
+      ctx.fillStyle = flash ? '#ffffff' : b.stunTimer > 0 ? '#3aa8d8' : '#7a1f24';
+      ctx.fillRect(bx, by, 28, 28);
+      ctx.fillStyle = flash ? '#ffffff' : '#d9452e';
+      ctx.fillRect(bx + 2, by + 2, 24, 24);
+      ctx.fillStyle = '#ffe066';
+      ctx.fillRect(bx + 6, by + 8, 5, 5);
+      ctx.fillRect(bx + 17, by + 8, 5, 5);
+      ctx.fillStyle = '#fff8c4';
+      ctx.fillRect(bx + 10, by + 16, 8, 6);
+    }
+
+    // Aether Triforce Relic
+    if (game.relic) {
+      const rx = game.relic.x + 6;
+      const ry = game.relic.y + 6 + Math.sin(game.time * 5) * 2;
+      ctx.fillStyle = '#ffe066';
+      ctx.beginPath();
+      ctx.moveTo(rx, ry - 7);
+      ctx.lineTo(rx + 7, ry + 5);
+      ctx.lineTo(rx - 7, ry + 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(rx - 1, ry - 2, 2, 4);
+    }
+
+    // Projectiles
+    for (const pr of game.projectiles) {
+      if (pr.kind === 'beam') {
+        ctx.fillStyle = '#7ef7ff';
+        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 4, 4);
+      } else if (pr.kind === 'fire') {
+        ctx.fillStyle = '#ff6b2e';
+        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
+        ctx.fillStyle = '#fff08a';
+        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 3, 3);
+      } else {
+        ctx.fillStyle = '#9c7858';
+        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
+      }
+    }
+  }
+
+  _drawHero(ctx, game) {
+    const p = game.player;
+    if (p.invulnTimer > 0 && Math.floor(game.time * 20) % 2 === 0) return;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+    ctx.fillRect(Math.round(p.x + 1), Math.round(p.y + 10), 10, 4);
+
+    // Charge aura
+    if (p.chargeTimer >= 0.3) {
+      ctx.strokeStyle = p.chargeTimer >= 0.45 ? '#7ef7ff' : '#ffe066';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(p.x + 6, p.y + 6, 9 + Math.sin(game.time * 24) * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    const spr =
+      p.dir === DIR.UP
+        ? this.atlas.hero.up
+        : p.dir === DIR.LEFT
+        ? this.atlas.hero.left
+        : p.dir === DIR.RIGHT
+        ? this.atlas.hero.right
+        : this.atlas.hero.down;
+
+    const bob = p.rollTimer > 0 ? -2 : Math.sin(p.walkAnim) * 0.8;
+    ctx.drawImage(spr, Math.round(p.x - 2), Math.round(p.y - 3 + bob));
+
+    // Sword Arc / Spin Attack Visual
+    if (p.spinTimer > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#9effe8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x + 6, p.y + 6, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (p.attackTimer > 0) {
+      const prog = 1 - p.attackTimer / 0.16;
+      const baseAngle =
+        p.dir === DIR.RIGHT ? 0 : p.dir === DIR.DOWN ? Math.PI * 0.5 : p.dir === DIR.LEFT ? Math.PI : -Math.PI * 0.5;
+      const a0 = baseAngle - 1.1 + prog * 1.8;
+      ctx.save();
+      ctx.translate(p.x + 6, p.y + 6);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, baseAngle - 1.1, a0);
+      ctx.stroke();
+      ctx.strokeStyle = '#7ef7ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a0) * 16, Math.sin(a0) * 16);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  _drawEffects(ctx, game) {
+    for (const pt of game.particles) {
+      ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(Math.round(pt.x), Math.round(pt.y), pt.size, pt.size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  _drawDungeonLighting(ctx, game) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = (x, y, r, col) => {
+      const g = ctx.createRadialGradient(x, y, 2, x, y, r);
+      g.addColorStop(0, col);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    };
+
+    glow(game.player.x + 6, game.player.y + 6, 36, 'rgba(130, 230, 255, 0.16)');
+    for (let y = 0; y < ROOM_ROWS; y++) {
+      for (let x = 0; x < ROOM_COLS; x++) {
+        if (game.room.tiles[y * ROOM_COLS + x] === TILE.TORCH) {
+          const r = 34 + Math.sin(game.time * 12 + x) * 3;
+          glow(x * 16 + 8, y * 16 + 6, r, 'rgba(255, 164, 62, 0.30)');
+        }
+      }
+    }
+    if (game.boss && game.boss.alive) {
+      glow(game.boss.x + 14, game.boss.y + 14, 48, 'rgba(255, 110, 48, 0.32)');
+    }
+    ctx.restore();
+  }
+
+  _drawFloatingTextsHD(ctx, game) {
+    ctx.font = '700 15px "Noto Sans TC", "Microsoft JhengHei", ui-monospace, sans-serif';
+    ctx.textAlign = 'center';
+    for (const t of game.texts) {
+      const sx = t.x * 3;
+      const sy = (HUD_H + t.y) * 3;
+      ctx.globalAlpha = Math.min(1, (t.life / t.maxLife) * 1.4);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(10, 12, 18, 0.9)';
+      ctx.strokeText(t.text, sx, sy);
+      ctx.fillStyle = t.color;
+      ctx.fillText(t.text, sx, sy);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  _drawZeldaHUD(ctx, game) {
+    const p = game.player;
+    const UI_FONT = '"Noto Sans TC", "Microsoft JhengHei", ui-monospace, sans-serif';
+
+    ctx.fillStyle = '#0d1218';
+    ctx.fillRect(0, 0, 960, 72);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(0, 71, 960, 2);
+
+    // Minimap (left)
+    const isD = game.zone === 'dungeon';
+    const cols = isD ? 2 : 3;
+    const rows = 2;
+    ctx.fillStyle = '#18212b';
+    ctx.fillRect(14, 10, 96, 52);
+    ctx.strokeStyle = '#3a4a5e';
+    ctx.strokeRect(14.5, 10.5, 95, 51);
+    const cellW = 26;
+    const cellH = 18;
+    const ox = isD ? 36 : 23;
+    for (let ry = 0; ry < rows; ry++) {
+      for (let rx = 0; rx < cols; rx++) {
+        const visited = game.world.visited.has(`${game.zone}:${rx},${ry}`);
+        const curr = rx === game.rx && ry === game.ry;
+        ctx.fillStyle = curr ? '#ffd54f' : visited ? (isD ? '#5d6b8f' : '#3a9958') : '#232c38';
+        ctx.fillRect(ox + rx * (cellW + 3), 16 + ry * (cellH + 3), cellW, cellH);
+      }
+    }
+
+    // Room Name
+    ctx.font = `700 15px ${UI_FONT}`;
+    ctx.fillStyle = isD ? '#ffd085' : '#a8ffb8';
+    ctx.fillText(game.room.name, 126, 28);
+
+    // Equipped Item Slot
+    ctx.fillStyle = '#1b2430';
+    ctx.fillRect(126, 36, 152, 26);
+    ctx.strokeStyle = '#4f6580';
+    ctx.strokeRect(126.5, 36.5, 151, 25);
+    ctx.drawImage(p.equipped === 'boomerang' ? this.atlas.items.boomerang : this.atlas.items.bomb, 134, 41, 18, 16);
+    ctx.font = `700 13px ${UI_FONT}`;
+    ctx.fillStyle = '#eaf4ff';
+    ctx.fillText(p.equipped === 'boomerang' ? '裝備：迴力鏢 [E]' : `裝備：炸彈 x${p.bombs} [E]`, 158, 54);
+
+    // Counters (Rupees / Keys / Bombs)
+    ctx.drawImage(this.atlas.items.rupee, 304, 24, 18, 22);
+    ctx.font = '700 18px ui-monospace, monospace';
+    ctx.fillStyle = '#6df598';
+    ctx.fillText(`${p.rupees}`, 328, 42);
+
+    ctx.drawImage(this.atlas.items.key, 396, 24, 18, 22);
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(`${p.keys}`, 420, 42);
+
+    ctx.drawImage(this.atlas.items.bomb, 470, 24, 20, 22);
+    ctx.fillStyle = '#c8d6f0';
+    ctx.fillText(`${p.bombs}`, 496, 42);
+
+    // Hearts (right side)
+    ctx.font = `700 13px ${UI_FONT}`;
+    ctx.fillStyle = '#ff8a9e';
+    ctx.fillText('— LIFE —', 744, 22);
+    const totalHearts = Math.ceil(p.maxHp / 2);
+    for (let i = 0; i < totalHearts; i++) {
+      const full = p.hp >= (i + 1) * 2;
+      const half = !full && p.hp === i * 2 + 1;
+      const hx = 680 + i * 32;
+      ctx.drawImage(this.atlas.items.heartEmpty, hx, 30, 26, 24);
+      if (full) ctx.drawImage(this.atlas.items.heartFull, hx, 30, 26, 24);
+      else if (half) ctx.drawImage(this.atlas.items.heartFull, 0, 0, 5, 9, hx, 30, 13, 24);
+    }
+
+    // Boss HP Bar
+    if (game.boss && game.boss.alive) {
+      ctx.fillStyle = 'rgba(12, 10, 18, 0.85)';
+      ctx.fillRect(280, 86, 400, 38);
+      ctx.fillStyle = '#ff9868';
+      ctx.font = `700 14px ${UI_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('IGNIS GUARDIAN — 炎核守衛', 480, 103);
+      ctx.fillStyle = '#2d1c24';
+      ctx.fillRect(296, 110, 368, 8);
+      ctx.fillStyle = '#ff5e38';
+      ctx.fillRect(296, 110, 368 * (game.boss.hp / game.boss.maxHp), 8);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  _drawDialogue(ctx, game) {
+    const UI_FONT = '"Noto Sans TC", "Microsoft JhengHei", sans-serif';
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.92)';
+    ctx.fillRect(60, 472, 840, 144);
+    ctx.strokeStyle = '#ffd561';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(61.5, 473.5, 837, 141);
+
+    ctx.font = `800 18px ${UI_FONT}`;
+    ctx.fillStyle = '#ffd561';
+    ctx.fillText(game.dialogueSpeaker, 86, 506);
+
+    ctx.font = `600 18px ${UI_FONT}`;
+    ctx.fillStyle = '#f2f7ff';
+    // Simple wrap for CJK text
+    const maxChars = 38;
+    const text = game.dialogueText;
+    let y = 540;
+    for (let i = 0; i < text.length; i += maxChars) {
+      ctx.fillText(text.slice(i, i + maxChars), 86, y);
+      y += 28;
+    }
+
+    ctx.font = `600 13px ${UI_FONT}`;
+    ctx.fillStyle = '#8effb0';
+    ctx.textAlign = 'right';
+    ctx.fillText('按 [SPACE / ENTER] 繼續 ▼', 876, 600);
+    ctx.textAlign = 'left';
+  }
+
+  _drawTitle(ctx, game) {
+    const UI_FONT = '"Noto Sans TC", "Microsoft JhengHei", sans-serif';
+    ctx.fillStyle = 'rgba(8, 16, 12, 0.72)';
+    ctx.fillRect(0, 72, 960, 576);
+    ctx.textAlign = 'center';
+
+    const bob = Math.sin(game.time * 3) * 6;
+    ctx.font = '900 62px ui-monospace, "Cascadia Mono", monospace';
+    ctx.fillStyle = '#0c1c12';
+    ctx.fillText('AETHER BLADE', 484, 234 + bob);
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('AETHER BLADE', 480, 230 + bob);
+
+    ctx.font = `700 24px ${UI_FONT}`;
+    ctx.fillStyle = '#9effb8';
+    ctx.fillText('— 聖 樹 傳 說 ： 俯 視 冒 險 —', 480, 276 + bob);
+
+    ctx.font = `600 16px ${UI_FONT}`;
+    ctx.fillStyle = '#d4e8d8';
+    ctx.fillText('無縫捲動大地圖  •  滿血劍氣 & 蓄力迴旋斬  •  迴力鏢 & 炸彈解謎  •  古神殿推箱機關與 BOSS 戰', 480, 344);
+
+    const pulse = 0.65 + 0.35 * Math.sin(game.time * 5);
+    ctx.fillStyle = `rgba(255, 240, 150, ${pulse.toFixed(2)})`;
+    ctx.font = `700 22px ${UI_FONT}`;
+    ctx.fillText('按 [ENTER] 或 [SPACE] 展開冒險', 480, 434);
+    ctx.textAlign = 'left';
+  }
+
+  _drawCenterBanner(ctx, title, sub, color = '#ffffff') {
+    const UI_FONT = '"Noto Sans TC", "Microsoft JhengHei", sans-serif';
+    ctx.fillStyle = 'rgba(6, 10, 14, 0.76)';
+    ctx.fillRect(0, 72, 960, 576);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.font = `800 40px ${UI_FONT}`;
+    ctx.fillText(title, 480, 310);
+    ctx.fillStyle = '#d4e4f4';
+    ctx.font = `600 19px ${UI_FONT}`;
+    ctx.fillText(sub, 480, 366);
+    ctx.textAlign = 'left';
+  }
+
+  _drawVictory(ctx, game) {
+    const UI_FONT = '"Noto Sans TC", "Microsoft JhengHei", sans-serif';
+    ctx.fillStyle = 'rgba(10, 14, 22, 0.84)';
+    ctx.fillRect(0, 72, 960, 576);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '900 46px ui-monospace, monospace';
+    ctx.fillText('LEGEND FULFILLED!', 480, 250);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 24px ${UI_FONT}`;
+    ctx.fillText('你擊敗了炎核守衛，奪回【聖樹之印】！', 480, 306);
+    ctx.fillStyle = '#9effb8';
+    ctx.font = `600 20px ${UI_FONT}`;
+    ctx.fillText(`收集盧比：${game.player.rupees}    最大生命：${game.player.maxHp / 2} 顆心`, 480, 356);
+    ctx.fillStyle = '#d4e8ff';
+    ctx.font = `600 18px ${UI_FONT}`;
+    ctx.fillText('按 [ENTER / SPACE] 再次踏上旅程', 480, 424);
+    ctx.textAlign = 'left';
+  }
+}
+
+// === src/main.js ===
+const displayCanvas = document.getElementById('game');
+const canvasWrap = document.getElementById('canvas-wrap');
+const areaPill = document.getElementById('area-pill');
+
+const sound = new SoundEngine();
+const atlas = createAtlas();
+const post = new WebGLPost(displayCanvas);
+const renderCanvas = post.supported ? document.createElement('canvas') : displayCanvas;
+const renderer = new ZeldaRenderer(renderCanvas, atlas, displayCanvas);
+window.addEventListener('resize', () => renderer.resize());
+
+function syncAreaUI(room) {
+  canvasWrap.classList.toggle('in-dungeon', room.isDungeon);
+  areaPill.className = `badge ${room.isDungeon ? 'dungeon' : ''}`;
+  areaPill.textContent = room.isDungeon ? 'DUNGEON 古神殿' : 'OVERWORLD 聖樹平原';
+}
+
+const game = new ZeldaGame(sound, syncAreaUI, (strength) => post.pulse(strength));
+
+const keys = new Set();
+const justPressed = new Set();
+const PREVENT = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+
+window.addEventListener('keydown', (e) => {
+  sound.unlock();
+  if (PREVENT.has(e.code)) e.preventDefault();
+  if (!keys.has(e.code)) justPressed.add(e.code);
+  keys.add(e.code);
+  if (e.code === 'KeyM') sound.toggleMute();
+  if (e.code === 'KeyG') post.enabled = !post.enabled;
+});
+
+window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('blur', () => keys.clear());
+displayCanvas.addEventListener('pointerdown', () => sound.unlock());
+
+function readInput() {
+  const down = (...c) => c.some((k) => keys.has(k));
+  const pressed = (...c) => c.some((k) => justPressed.has(k));
+  const inp = {
+    left: down('ArrowLeft', 'KeyA'),
+    right: down('ArrowRight', 'KeyD'),
+    up: down('ArrowUp', 'KeyW'),
+    down: down('ArrowDown', 'KeyS'),
+    attack: down('Space', 'KeyZ', 'KeyJ'),
+    attackPressed: pressed('Space', 'KeyZ', 'KeyJ'),
+    itemPressed: pressed('KeyE', 'KeyX', 'KeyK'),
+    cyclePressed: pressed('KeyQ', 'Tab'),
+    rollPressed: pressed('ShiftLeft', 'ShiftRight'),
+    startPressed: pressed('Enter'),
+    pausePressed: pressed('Escape', 'KeyP'),
+    restartPressed: pressed('KeyR'),
+  };
+  justPressed.clear();
+  return inp;
+}
+
+const STEP = 1 / 60;
+let acc = 0;
+let last = performance.now();
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  acc += dt;
+  while (acc >= STEP) {
+    game.update(STEP, readInput());
+    post.update(STEP);
+    acc -= STEP;
+  }
+  renderer.render(game);
+  if (post.supported) post.render(renderCanvas);
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+})();
+</script>
+  </body>
+</html>
