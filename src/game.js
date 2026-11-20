@@ -39,11 +39,13 @@ export class ZeldaGame {
       dir: DIR.DOWN,
       hp: 6,       // 3 full hearts (each heart = 2 half-hearts)
       maxHp: 6,
-      rupees: 0,
+      rupees: 10,
       keys: 0,
       bombs: 4,
       hasBoomerang: false,
-      equipped: 'bomb', // 'bomb' | 'boomerang'
+      hasFireRod: false,
+      swordLevel: 1,    // 1 = Hero Sword, 2 = Master Blade (Golden)
+      equipped: 'bomb', // 'bomb' | 'boomerang' | 'fire_rod'
       attackTimer: 0,
       attackCooldown: 0,
       chargeTimer: 0,
@@ -55,9 +57,12 @@ export class ZeldaGame {
       knockVy: 0,
       walkAnim: 0,
       pushTimer: 0,
+      crystalCooldown: 0,
+      fairyCooldown: 0,
     };
 
     this.enemies = [];
+    this.traps = [];
     this.projectiles = [];
     this.bombs = [];
     this.boomerang = null;
@@ -78,6 +83,7 @@ export class ZeldaGame {
 
   _spawnRoomEntities() {
     this.enemies = [];
+    this.traps = (this.room.trapSpawns || []).map((tr) => ({ ...tr, w: 14, h: 14 }));
     this.projectiles = [];
     this.bombs = [];
     this.boomerang = null;
@@ -241,6 +247,7 @@ export class ZeldaGame {
     }
 
     this._updatePlayer(dt, input);
+    this._updateTraps(dt);
     this._updateBombs(dt);
     this._updateBoomerang(dt);
     this._updateProjectiles(dt);
@@ -250,18 +257,40 @@ export class ZeldaGame {
     this._updateParticles(dt);
   }
 
+  _updateTraps(dt) {
+    const p = this.player;
+    for (const tr of this.traps) {
+      tr.x += tr.vx * dt;
+      tr.y += tr.vy * dt;
+      if (tr.x <= tr.minX) { tr.x = tr.minX; tr.vx = Math.abs(tr.vx); }
+      if (tr.x >= tr.maxX) { tr.x = tr.maxX; tr.vx = -Math.abs(tr.vx); }
+      if (tr.y <= tr.minY) { tr.y = tr.minY; tr.vy = Math.abs(tr.vy); }
+      if (tr.y >= tr.maxY) { tr.y = tr.maxY; tr.vy = -Math.abs(tr.vy); }
+      if (overlaps(tr, p)) {
+        this._hurtPlayer(p.x - tr.x, p.y - tr.y);
+      }
+    }
+  }
+
   _updatePlayer(dt, input) {
     const p = this.player;
     if (p.invulnTimer > 0) p.invulnTimer -= dt;
     if (p.attackCooldown > 0) p.attackCooldown -= dt;
     if (p.attackTimer > 0) p.attackTimer -= dt;
     if (p.spinTimer > 0) p.spinTimer -= dt;
+    if (p.crystalCooldown > 0) p.crystalCooldown -= dt;
+    if (p.fairyCooldown > 0) p.fairyCooldown -= dt;
 
-    // Cycle equipped sub-item
+    // Cycle equipped sub-item (bomb -> boomerang -> fire_rod)
     if (input.cyclePressed) {
-      if (p.hasBoomerang) {
-        p.equipped = p.equipped === 'bomb' ? 'boomerang' : 'bomb';
-        this.spawnText(p.x + 6, p.y - 4, p.equipped === 'boomerang' ? '迴力鏢' : '炸彈', '#8effb0');
+      const owned = ['bomb'];
+      if (p.hasBoomerang) owned.push('boomerang');
+      if (p.hasFireRod) owned.push('fire_rod');
+      if (owned.length > 1) {
+        const nextIdx = (owned.indexOf(p.equipped) + 1) % owned.length;
+        p.equipped = owned[nextIdx];
+        const label = p.equipped === 'boomerang' ? '疾風迴力鏢' : p.equipped === 'fire_rod' ? '聖火法杖' : '炸彈';
+        this.spawnText(p.x + 6, p.y - 4, label, '#8effb0');
       }
     }
 
@@ -309,7 +338,7 @@ export class ZeldaGame {
       p.chargeTimer = 0;
     }
 
-    // Sub-item use (Bomb or Boomerang)
+    // Sub-item use (Bomb / Boomerang / Fire Rod)
     if (input.itemPressed && p.rollTimer <= 0) {
       if (p.equipped === 'boomerang' && p.hasBoomerang && !this.boomerang) {
         const dv = DIR_VEC[p.dir];
@@ -324,6 +353,22 @@ export class ZeldaGame {
           dist: 0,
         };
         this.sound.playBoomerang();
+      } else if (p.equipped === 'fire_rod' && p.hasFireRod) {
+        const dv = DIR_VEC[p.dir];
+        this.projectiles.push({
+          fromPlayer: true,
+          kind: 'player_fire',
+          x: p.x + 3 + dv.x * 10,
+          y: p.y + 3 + dv.y * 10,
+          w: 7,
+          h: 7,
+          vx: dv.x * 185,
+          vy: dv.y * 185,
+          life: 1.5,
+          alive: true,
+        });
+        this.sound.playSwordBeam();
+        this.burst(p.x + 6 + dv.x * 8, p.y + 6 + dv.y * 8, 6, '#ff9838', 55);
       } else if (p.equipped === 'bomb' && p.bombs > 0) {
         p.bombs -= 1;
         const dv = DIR_VEC[p.dir];
@@ -375,10 +420,17 @@ export class ZeldaGame {
     this._movePlayerAxis(vx * dt, 0, mx, 0, dt);
     this._movePlayerAxis(0, vy * dt, 0, my, dt);
 
-    // Check Stairs & Relic
+    // Check Stairs, Fairy Healing Spring & Relic
     const centerTx = Math.floor((p.x + p.w * 0.5) / TILE_SIZE);
     const centerTy = Math.floor((p.y + p.h * 0.5) / TILE_SIZE);
     const under = this.getTile(this.room, centerTx, centerTy);
+    if (under === TILE.FAIRY_SPRING && p.hp < p.maxHp && p.fairyCooldown <= 0) {
+      p.hp = p.maxHp;
+      p.fairyCooldown = 2.0;
+      this.sound.playSecret();
+      this.burst(p.x + 6, p.y + 6, 20, '#8ef7ff', 95);
+      this.spawnText(p.x + 6, p.y - 8, '妖精祝福：體力全滿！', '#9efffa');
+    }
     if (under === TILE.STAIRS_IN) {
       this._enterZone('dungeon', 0, 1, 9 * 16 + 2, 7 * 16);
       return;
@@ -492,6 +544,34 @@ export class ZeldaGame {
       }
     }
 
+    // Shop Items
+    for (const s of this.room.shopItems || []) {
+      if (s.sold) continue;
+      if (overlaps(probe, { x: s.x - 4, y: s.y - 4, w: 22, h: 22 })) {
+        if (p.rupees < s.price) {
+          this.openDialogue('森林商人', `這件【${s.label}】需要 ${s.price} 盧比喔！多打碎陶罐、草叢或解謎寶箱來收集盧比吧。`);
+          return true;
+        }
+        p.rupees -= s.price;
+        this.sound.playChest();
+        this.burst(s.x + 6, s.y + 6, 18, '#ffe066', 95);
+        if (s.reward === 'bombs') {
+          p.bombs += 5;
+          this.openDialogue('購買成功', '獲得【炸彈 x5】！');
+        } else if (s.reward === 'fire_rod') {
+          s.sold = true;
+          p.hasFireRod = true;
+          p.equipped = 'fire_rod';
+          this.openDialogue('購買成功', '獲得【聖火法杖】！按 Q 切換、E 發射火球，可點燃熄滅的火盆解謎並灼燒敵人！');
+        } else if (s.reward === 'master_sword') {
+          s.sold = true;
+          p.swordLevel = 2;
+          this.openDialogue('購買成功', '獲得【黃金聖樹劍】！劍刃攻擊力永久加倍（2倍傷害）！');
+        }
+        return true;
+      }
+    }
+
     // Chests
     for (const c of this.room.chests) {
       if (!c.opened && overlaps(probe, { x: c.x, y: c.y, w: 16, h: 16 })) {
@@ -505,6 +585,8 @@ export class ZeldaGame {
           p.keys += 1;
         } else if (c.reward === 'bombs') {
           p.bombs += 5;
+        } else if (c.reward === 'rupees_30') {
+          p.rupees += 30;
         } else if (c.reward === 'heart_container') {
           p.maxHp += 2;
           p.hp = p.maxHp;
@@ -540,23 +622,32 @@ export class ZeldaGame {
       };
     }
 
-    // Cut bushes in sword hitbox
+    // Cut bushes, smash pots, flip crystal orbs in sword hitbox
     const l = Math.max(0, Math.floor(box.x / TILE_SIZE));
     const r = Math.min(ROOM_COLS - 1, Math.floor((box.x + box.w) / TILE_SIZE));
     const t = Math.max(0, Math.floor(box.y / TILE_SIZE));
     const b = Math.min(ROOM_ROWS - 1, Math.floor((box.y + box.h) / TILE_SIZE));
+    const floor = this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS;
     for (let ty = t; ty <= b; ty++) {
       for (let tx = l; tx <= r; tx++) {
-        if (this.getTile(this.room, tx, ty) === TILE.BUSH) {
+        const tile = this.getTile(this.room, tx, ty);
+        if (tile === TILE.BUSH) {
           this.setTile(this.room, tx, ty, TILE.GRASS);
           this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#58df72', 75);
           this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4);
+        } else if (tile === TILE.POT) {
+          this.setTile(this.room, tx, ty, floor);
+          this.sound.playHit();
+          this.burst(tx * 16 + 8, ty * 16 + 8, 10, '#e0996c', 85);
+          this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+        } else if (tile === TILE.CRYSTAL_ORB) {
+          this._toggleCrystalSwitch(tx, ty);
         }
       }
     }
 
     // Hit Enemies
-    const dmg = isSpin ? 2 : 1;
+    const dmg = (isSpin ? 2 : 1) * p.swordLevel;
     for (const e of this.enemies) {
       if (e.alive && overlaps(box, e)) {
         this._damageEnemy(e, dmg, e.x - p.x, e.y - p.y);
@@ -569,11 +660,49 @@ export class ZeldaGame {
     }
   }
 
-  _maybeSpawnDrop(x, y) {
+  _maybeSpawnDrop(x, y, guaranteed = false) {
     const roll = Math.random();
-    if (roll < 0.26) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
-    else if (roll < 0.44) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
-    else if (roll < 0.54) this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+    if (guaranteed) {
+      if (roll < 0.5) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
+      else if (roll < 0.8) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
+      else this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+      return;
+    }
+    if (roll < 0.28) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
+    else if (roll < 0.46) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
+    else if (roll < 0.56) this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+  }
+
+  _toggleCrystalSwitch(tx, ty) {
+    if (this.player.crystalCooldown > 0) return;
+    this.player.crystalCooldown = 0.28;
+    this.world.crystalState = this.world.crystalState === 0 ? 1 : 0;
+    this.sound.playDoorOpen();
+    this.addShake(2.5);
+    const col = this.world.crystalState === 0 ? '#ff6478' : '#4ae3ff';
+    this.burst(tx * 16 + 8, ty * 16 + 8, 12, col, 85);
+    this.spawnText(tx * 16 + 8, ty * 16 - 4, this.world.crystalState === 0 ? '紅柱升起' : '藍柱升起', col);
+  }
+
+  _igniteBrazier(tx, ty) {
+    this.setTile(this.room, tx, ty, TILE.BRAZIER_ON);
+    this.sound.playDoorOpen();
+    this.burst(tx * 16 + 8, ty * 16 + 4, 14, '#ff9838', 80);
+    // Check if any unlit braziers remain in room
+    let remaining = 0;
+    for (let i = 0; i < this.room.tiles.length; i++) {
+      if (this.room.tiles[i] === TILE.BRAZIER_OFF) remaining++;
+    }
+    if (remaining === 0 && !this.room.brazierSolved) {
+      this.room.brazierSolved = true;
+      this.sound.playSecret();
+      if (this.room.brazierChest) {
+        this.room.brazierChest.revealed = true;
+        this.room.chests.push(this.room.brazierChest);
+        this.burst(this.room.brazierChest.x + 8, this.room.brazierChest.y + 8, 22, '#ffe066', 100);
+        this.spawnText(this.room.brazierChest.x + 8, this.room.brazierChest.y - 6, '聖火秘寶出現！', '#ffe066');
+      }
+    }
   }
 
   _damageEnemy(e, dmg, kx, ky) {
@@ -687,7 +816,14 @@ export class ZeldaGame {
       const tx = Math.floor((bm.x + 4) / TILE_SIZE);
       const ty = Math.floor((bm.y + 4) / TILE_SIZE);
       const tile = this.getTile(this.room, tx, ty);
-      if (bm.dist > 110 || tile === TILE.TREE || tile === TILE.DUNGEON_WALL || tile === TILE.ROCK) {
+      if (tile === TILE.CRYSTAL_ORB) {
+        this._toggleCrystalSwitch(tx, ty);
+        bm.returning = true;
+      } else if (tile === TILE.POT) {
+        this.setTile(this.room, tx, ty, this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS);
+        this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#e0996c', 75);
+        this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+      } else if (bm.dist > 115 || tile === TILE.TREE || tile === TILE.DUNGEON_WALL || tile === TILE.ROCK) {
         bm.returning = true;
       }
     } else {
@@ -737,20 +873,39 @@ export class ZeldaGame {
       }
       const tx = Math.floor((pr.x + 3) / TILE_SIZE);
       const ty = Math.floor((pr.y + 3) / TILE_SIZE);
-      if (this.world.isSolidTile(this.getTile(this.room, tx, ty)) && this.getTile(this.room, tx, ty) !== TILE.WATER) {
+      const hitTile = this.getTile(this.room, tx, ty);
+      if (pr.fromPlayer && hitTile === TILE.CRYSTAL_ORB) {
+        this._toggleCrystalSwitch(tx, ty);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (pr.kind === 'player_fire' && hitTile === TILE.BRAZIER_OFF) {
+        this._igniteBrazier(tx, ty);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (pr.fromPlayer && hitTile === TILE.POT) {
+        this.setTile(this.room, tx, ty, this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS);
+        this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#e0996c', 75);
+        this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (this.world.isSolidTile(hitTile) && hitTile !== TILE.WATER) {
         this.burst(pr.x + 3, pr.y + 3, 5, '#ffe680', 55);
         this.projectiles.splice(i, 1);
         continue;
       }
       if (pr.fromPlayer) {
+        const pdmg = pr.kind === 'player_fire' ? 2 : 1;
         for (const e of this.enemies) {
           if (e.alive && overlaps(pr, e)) {
-            this._damageEnemy(e, 1, pr.vx, pr.vy);
+            this._damageEnemy(e, pdmg, pr.vx, pr.vy);
             pr.life = 0;
           }
         }
         if (this.boss && this.boss.alive && overlaps(pr, this.boss)) {
-          this._damageBoss(1);
+          this._damageBoss(pdmg);
           pr.life = 0;
         }
       } else if (overlaps(pr, this.player)) {

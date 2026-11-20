@@ -48,14 +48,14 @@ export class ZeldaRenderer {
       const oy = -tr.dy * PLAY_H * ease;
       ctx.save();
       ctx.translate(Math.round(ox), Math.round(oy));
-      this._drawRoomTiles(ctx, tr.fromRoom, game.time);
+      this._drawRoomTiles(ctx, tr.fromRoom, game.world.crystalState, game.time);
       ctx.restore();
       ctx.save();
       ctx.translate(Math.round(ox + tr.dx * PLAY_W), Math.round(oy + tr.dy * PLAY_H));
-      this._drawRoomTiles(ctx, tr.toRoom, game.time);
+      this._drawRoomTiles(ctx, tr.toRoom, game.world.crystalState, game.time);
       ctx.restore();
     } else {
-      this._drawRoomTiles(ctx, game.room, game.time);
+      this._drawRoomTiles(ctx, game.room, game.world.crystalState, game.time);
       this._drawRoomEntities(ctx, game);
       this._drawHero(ctx, game);
       this._drawEffects(ctx, game);
@@ -86,8 +86,9 @@ export class ZeldaRenderer {
     ctx.restore();
   }
 
-  _drawRoomTiles(ctx, room, time) {
+  _drawRoomTiles(ctx, room, crystalState, time) {
     const t = this.atlas.tiles;
+    const baseFloor = room.isDungeon ? t.dungeonFloor : t.grass;
     for (let y = 0; y < ROOM_ROWS; y++) {
       for (let x = 0; x < ROOM_COLS; x++) {
         const tile = room.tiles[y * ROOM_COLS + x];
@@ -111,6 +112,38 @@ export class ZeldaRenderer {
           case TILE.STAIRS_OUT: ctx.drawImage(t.stairsOut, px, py); break;
           case TILE.SIGN: ctx.drawImage(t.sign, px, py); break;
           case TILE.PEDESTAL: ctx.drawImage(t.pedestal, px, py); break;
+          case TILE.POT:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.pot, px, py);
+            break;
+          case TILE.CRYSTAL_ORB:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 0 ? t.crystalRed : t.crystalBlue, px, py);
+            break;
+          case TILE.RED_BLOCK:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 0 ? t.redUp : t.redDown, px, py);
+            break;
+          case TILE.BLUE_BLOCK:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 1 ? t.blueUp : t.blueDown, px, py);
+            break;
+          case TILE.BRAZIER_OFF:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.brazierOff, px, py);
+            break;
+          case TILE.BRAZIER_ON:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.brazierOn, px, py);
+            break;
+          case TILE.FAIRY_SPRING: {
+            ctx.drawImage(t.fairySpring, px, py);
+            const fx = px + 8 + Math.cos(time * 4 + x) * 4;
+            const fy = py + 8 + Math.sin(time * 5 + y) * 4;
+            ctx.fillStyle = '#fff5b0';
+            ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
+            break;
+          }
           case TILE.WATER: {
             ctx.fillStyle = '#247bb8';
             ctx.fillRect(px, py, 16, 16);
@@ -144,9 +177,38 @@ export class ZeldaRenderer {
       ctx.drawImage(c.opened ? this.atlas.items.chestOpen : this.atlas.items.chestClosed, c.x, c.y);
     }
 
-    // Elder NPC
+    // Elder / Merchant NPC
     if (room.npc) {
-      ctx.drawImage(this.atlas.npcs.elder, room.npc.x, room.npc.y);
+      const spr = room.npc.kind === 'merchant' ? this.atlas.npcs.merchant : this.atlas.npcs.elder;
+      ctx.drawImage(spr, room.npc.x, room.npc.y);
+    }
+
+    // Shop Display Items
+    for (const s of room.shopItems || []) {
+      if (s.sold) continue;
+      ctx.fillStyle = '#3b2e26';
+      ctx.fillRect(s.x - 1, s.y + 6, 14, 6);
+      const bob = Math.sin(game.time * 4 + s.x) * 1.2;
+      const iconSpr = this.atlas.items[s.icon] || this.atlas.items.bomb;
+      ctx.drawImage(iconSpr, Math.round(s.x + 1), Math.round(s.y - 1 + bob));
+    }
+
+    // Patrolling Dungeon Blade Traps
+    for (const tr of game.traps || []) {
+      const tx = Math.round(tr.x);
+      const ty = Math.round(tr.y);
+      ctx.fillStyle = '#1b1d2b';
+      ctx.fillRect(tx, ty, 14, 14);
+      ctx.fillStyle = '#8b96b8';
+      ctx.fillRect(tx + 2, ty + 2, 10, 10);
+      ctx.fillStyle = '#ff4b64';
+      ctx.fillRect(tx + 5, ty + 5, 4, 4);
+      // Corner spikes
+      ctx.fillStyle = '#edf2ff';
+      ctx.fillRect(tx - 1, ty + 6, 2, 2);
+      ctx.fillRect(tx + 13, ty + 6, 2, 2);
+      ctx.fillRect(tx + 6, ty - 1, 2, 2);
+      ctx.fillRect(tx + 6, ty + 13, 2, 2);
     }
 
     // Drops
@@ -226,15 +288,15 @@ export class ZeldaRenderer {
     // Projectiles
     for (const pr of game.projectiles) {
       if (pr.kind === 'beam') {
-        ctx.fillStyle = '#7ef7ff';
+        ctx.fillStyle = game.player.swordLevel >= 2 ? '#ffd54f' : '#7ef7ff';
         ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 4, 4);
-      } else if (pr.kind === 'fire') {
-        ctx.fillStyle = '#ff6b2e';
-        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
+      } else if (pr.kind === 'fire' || pr.kind === 'player_fire') {
+        ctx.fillStyle = '#ff5e2e';
+        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 7, 7);
         ctx.fillStyle = '#fff08a';
-        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 3, 3);
+        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 4, 4);
       } else {
         ctx.fillStyle = '#9c7858';
         ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
@@ -292,7 +354,7 @@ export class ZeldaRenderer {
       ctx.beginPath();
       ctx.arc(0, 0, 14, baseAngle - 1.1, a0);
       ctx.stroke();
-      ctx.strokeStyle = '#7ef7ff';
+      ctx.strokeStyle = p.swordLevel >= 2 ? '#ffd54f' : '#7ef7ff';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, 0);
@@ -325,7 +387,8 @@ export class ZeldaRenderer {
     glow(game.player.x + 6, game.player.y + 6, 36, 'rgba(130, 230, 255, 0.16)');
     for (let y = 0; y < ROOM_ROWS; y++) {
       for (let x = 0; x < ROOM_COLS; x++) {
-        if (game.room.tiles[y * ROOM_COLS + x] === TILE.TORCH) {
+        const tile = game.room.tiles[y * ROOM_COLS + x];
+        if (tile === TILE.TORCH || tile === TILE.BRAZIER_ON) {
           const r = 34 + Math.sin(game.time * 12 + x) * 3;
           glow(x * 16 + 8, y * 16 + 6, r, 'rgba(255, 164, 62, 0.30)');
         }
@@ -340,6 +403,18 @@ export class ZeldaRenderer {
   _drawFloatingTextsHD(ctx, game) {
     ctx.font = '700 15px "Noto Sans TC", "Microsoft JhengHei", ui-monospace, sans-serif';
     ctx.textAlign = 'center';
+    // Shop price labels in crisp HD
+    for (const s of game.room.shopItems || []) {
+      if (s.sold) continue;
+      const sx = (s.x + 6) * 3;
+      const sy = (HUD_H + s.y + 18) * 3;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(10, 12, 18, 0.92)';
+      const tag = `${s.label} ${s.price}R`;
+      ctx.strokeText(tag, sx, sy);
+      ctx.fillStyle = game.player.rupees >= s.price ? '#ffe066' : '#ff8a9e';
+      ctx.fillText(tag, sx, sy);
+    }
     for (const t of game.texts) {
       const sx = t.x * 3;
       const sy = (HUD_H + t.y) * 3;
@@ -390,13 +465,25 @@ export class ZeldaRenderer {
 
     // Equipped Item Slot
     ctx.fillStyle = '#1b2430';
-    ctx.fillRect(126, 36, 152, 26);
+    ctx.fillRect(126, 36, 162, 26);
     ctx.strokeStyle = '#4f6580';
-    ctx.strokeRect(126.5, 36.5, 151, 25);
-    ctx.drawImage(p.equipped === 'boomerang' ? this.atlas.items.boomerang : this.atlas.items.bomb, 134, 41, 18, 16);
+    ctx.strokeRect(126.5, 36.5, 161, 25);
+    const eqIcon =
+      p.equipped === 'boomerang'
+        ? this.atlas.items.boomerang
+        : p.equipped === 'fire_rod'
+        ? this.atlas.items.fireRod
+        : this.atlas.items.bomb;
+    ctx.drawImage(eqIcon, 134, 41, 18, 16);
     ctx.font = `700 13px ${UI_FONT}`;
     ctx.fillStyle = '#eaf4ff';
-    ctx.fillText(p.equipped === 'boomerang' ? '裝備：迴力鏢 [E]' : `裝備：炸彈 x${p.bombs} [E]`, 158, 54);
+    const eqText =
+      p.equipped === 'boomerang'
+        ? '裝備：迴力鏢 [E]'
+        : p.equipped === 'fire_rod'
+        ? '裝備：聖火法杖 [E]'
+        : `裝備：炸彈 x${p.bombs} [E]`;
+    ctx.fillText(eqText, 158, 54);
 
     // Counters (Rupees / Keys / Bombs)
     ctx.drawImage(this.atlas.items.rupee, 304, 24, 18, 22);

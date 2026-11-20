@@ -56,6 +56,16 @@ export function createAtlas() {
   atlas.tiles.stairsOut = bakeStairs(false);
   atlas.tiles.sign = bakeSign();
   atlas.tiles.pedestal = bakePedestal();
+  atlas.tiles.pot = bakePot();
+  atlas.tiles.crystalRed = bakeCrystalOrb('#ff4f64', '#ffb8c0');
+  atlas.tiles.crystalBlue = bakeCrystalOrb('#38b6ff', '#b8f2ff');
+  atlas.tiles.redUp = bakeBarrier('#d9384a', '#ff8090', true);
+  atlas.tiles.redDown = bakeBarrier('#d9384a', '#ff8090', false);
+  atlas.tiles.blueUp = bakeBarrier('#2a82e0', '#80d4ff', true);
+  atlas.tiles.blueDown = bakeBarrier('#2a82e0', '#80d4ff', false);
+  atlas.tiles.brazierOff = bakeBrazier(false);
+  atlas.tiles.brazierOn = bakeBrazier(true);
+  atlas.tiles.fairySpring = bakeFairySpring();
 
   // --- HERO (16x16, 4 directions) ---
   const heroPal = {
@@ -307,6 +317,53 @@ export function createAtlas() {
   );
   atlas.items.chestClosed = bakeChest(false);
   atlas.items.chestOpen = bakeChest(true);
+  atlas.items.fireRod = paint(
+    [
+      '....ooo..',
+      '...oRRRo.',
+      '...oRYRo.',
+      '....ooo..',
+      '....oYo..',
+      '...oYYo..',
+      '..oYYo...',
+      '.oYYo....',
+      '.ooo.....',
+    ],
+    { o: '#26120c', R: '#ff4b2b', Y: '#ffd54f' }
+  );
+  atlas.items.masterSword = paint(
+    [
+      '......oo.',
+      '.....oCCo',
+      '....oCWWo',
+      '...oCWWo.',
+      '..oYYCo..',
+      '.oYYYYo..',
+      '..oYYo...',
+      '.oBBo....',
+      '.ooo.....',
+    ],
+    { o: '#141c2e', C: '#4ae3ff', W: '#ffffff', Y: '#ffd54f', B: '#2a56b8' }
+  );
+  atlas.npcs.merchant = paint(
+    [
+      '....oooooooo....',
+      '...oPPPPPPPPo...',
+      '..oPppppppppPo..',
+      '..oPSSSSSSSSPo..',
+      '..oPSKSSSSKSPo..',
+      '..oPSSSSSSSSPo..',
+      '...ooYYYYYYoo...',
+      '..ooPPPPPPPPoo..',
+      '.oPPPPPYYPPPPPo.',
+      '.oPPPPPYYPPPPPo.',
+      '..oPPPPPPPPPPo..',
+      '..oPPYYYYYYPPo..',
+      '...oPPPPPPPPo...',
+      '...oooo..oooo...',
+    ],
+    { o: '#1a1026', P: '#7a3ec4', p: '#b57cff', S: '#f5cda0', K: '#1a1026', Y: '#ffd54f' }
+  );
 
   return atlas;
 }
@@ -547,5 +604,87 @@ function bakeChest(open) {
     ctx.fillStyle = '#180d08';
     ctx.fillRect(3, 4, 10, 4);
   }
+  return c;
+}
+
+function bakePot() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#291710';
+  ctx.fillRect(4, 2, 8, 3);
+  ctx.fillRect(2, 5, 12, 9);
+  ctx.fillStyle = '#b56a43';
+  ctx.fillRect(5, 3, 6, 2);
+  ctx.fillRect(3, 6, 10, 7);
+  ctx.fillStyle = '#e0996c';
+  ctx.fillRect(4, 6, 3, 5);
+  ctx.fillStyle = '#753d24';
+  ctx.fillRect(3, 12, 10, 1);
+  return c;
+}
+
+function bakeCrystalOrb(main, hi) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1c1d2e';
+  ctx.fillRect(3, 3, 10, 10);
+  ctx.fillStyle = main;
+  ctx.fillRect(4, 4, 8, 8);
+  ctx.fillStyle = hi;
+  ctx.fillRect(5, 5, 3, 3);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(5, 5, 2, 2);
+  return c;
+}
+
+function bakeBarrier(main, hi, up) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  if (up) {
+    ctx.fillStyle = '#191826';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = main;
+    ctx.fillRect(1, 1, 14, 14);
+    ctx.fillStyle = hi;
+    ctx.fillRect(2, 2, 12, 3);
+    ctx.fillRect(2, 2, 3, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(5, 6, 6, 5);
+  } else {
+    ctx.strokeStyle = main;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(2.5, 2.5, 11, 11);
+    ctx.fillStyle = main;
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(3, 3, 10, 10);
+  }
+  return c;
+}
+
+function bakeBrazier(lit) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#242536';
+  ctx.fillRect(3, 6, 10, 8);
+  ctx.fillStyle = '#5d6385';
+  ctx.fillRect(4, 7, 8, 6);
+  ctx.fillStyle = lit ? '#ff7b24' : '#323548';
+  ctx.fillRect(5, 4, 6, 4);
+  if (lit) {
+    ctx.fillStyle = '#fff399';
+    ctx.fillRect(6, 2, 4, 4);
+  }
+  return c;
+}
+
+function bakeFairySpring() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2ea8e0';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#7ef2ff';
+  ctx.fillRect(2, 2, 12, 12);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(6, 6, 4, 4);
   return c;
 }

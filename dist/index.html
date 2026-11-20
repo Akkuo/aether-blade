@@ -116,7 +116,7 @@ canvas#game {
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑↓←→</kbd> 移動</span>
         <span><kbd>Space</kbd> / <kbd>Z</kbd> 揮劍（長按迴旋斬・滿血劍氣）</span>
         <span><kbd>E</kbd> / <kbd>X</kbd> 使用道具</span>
-        <span><kbd>Q</kbd> 切換道具（迴力鏢/炸彈）</span>
+        <span><kbd>Q</kbd> 切換道具（炸彈/迴力鏢/聖火法杖）</span>
         <span><kbd>Shift</kbd> 翻滾閃避</span>
         <span><kbd>G</kbd> Bloom</span>
         <span><kbd>M</kbd> 靜音</span>
@@ -176,6 +176,13 @@ const TILE = {
   BRIDGE: 16,
   SIGN: 17,
   PEDESTAL: 18,
+  POT: 19,          // Smashable ceramic pot (drops loot!)
+  CRYSTAL_ORB: 20,  // Hit to toggle Red/Blue barriers!
+  RED_BLOCK: 21,    // Raised when crystalState === 0
+  BLUE_BLOCK: 22,   // Raised when crystalState === 1
+  BRAZIER_OFF: 23,  // Unlit brazier — ignite with Fire Rod!
+  BRAZIER_ON: 24,   // Lit brazier
+  FAIRY_SPRING: 25, // Sparkling healing fairy fountain!
 };
 
 // === src/audio.js ===
@@ -466,6 +473,16 @@ function createAtlas() {
   atlas.tiles.stairsOut = bakeStairs(false);
   atlas.tiles.sign = bakeSign();
   atlas.tiles.pedestal = bakePedestal();
+  atlas.tiles.pot = bakePot();
+  atlas.tiles.crystalRed = bakeCrystalOrb('#ff4f64', '#ffb8c0');
+  atlas.tiles.crystalBlue = bakeCrystalOrb('#38b6ff', '#b8f2ff');
+  atlas.tiles.redUp = bakeBarrier('#d9384a', '#ff8090', true);
+  atlas.tiles.redDown = bakeBarrier('#d9384a', '#ff8090', false);
+  atlas.tiles.blueUp = bakeBarrier('#2a82e0', '#80d4ff', true);
+  atlas.tiles.blueDown = bakeBarrier('#2a82e0', '#80d4ff', false);
+  atlas.tiles.brazierOff = bakeBrazier(false);
+  atlas.tiles.brazierOn = bakeBrazier(true);
+  atlas.tiles.fairySpring = bakeFairySpring();
 
   // --- HERO (16x16, 4 directions) ---
   const heroPal = {
@@ -717,6 +734,53 @@ function createAtlas() {
   );
   atlas.items.chestClosed = bakeChest(false);
   atlas.items.chestOpen = bakeChest(true);
+  atlas.items.fireRod = paint(
+    [
+      '....ooo..',
+      '...oRRRo.',
+      '...oRYRo.',
+      '....ooo..',
+      '....oYo..',
+      '...oYYo..',
+      '..oYYo...',
+      '.oYYo....',
+      '.ooo.....',
+    ],
+    { o: '#26120c', R: '#ff4b2b', Y: '#ffd54f' }
+  );
+  atlas.items.masterSword = paint(
+    [
+      '......oo.',
+      '.....oCCo',
+      '....oCWWo',
+      '...oCWWo.',
+      '..oYYCo..',
+      '.oYYYYo..',
+      '..oYYo...',
+      '.oBBo....',
+      '.ooo.....',
+    ],
+    { o: '#141c2e', C: '#4ae3ff', W: '#ffffff', Y: '#ffd54f', B: '#2a56b8' }
+  );
+  atlas.npcs.merchant = paint(
+    [
+      '....oooooooo....',
+      '...oPPPPPPPPo...',
+      '..oPppppppppPo..',
+      '..oPSSSSSSSSPo..',
+      '..oPSKSSSSKSPo..',
+      '..oPSSSSSSSSPo..',
+      '...ooYYYYYYoo...',
+      '..ooPPPPPPPPoo..',
+      '.oPPPPPYYPPPPPo.',
+      '.oPPPPPYYPPPPPo.',
+      '..oPPPPPPPPPPo..',
+      '..oPPYYYYYYPPo..',
+      '...oPPPPPPPPo...',
+      '...oooo..oooo...',
+    ],
+    { o: '#1a1026', P: '#7a3ec4', p: '#b57cff', S: '#f5cda0', K: '#1a1026', Y: '#ffd54f' }
+  );
 
   return atlas;
 }
@@ -960,6 +1024,88 @@ function bakeChest(open) {
   return c;
 }
 
+function bakePot() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#291710';
+  ctx.fillRect(4, 2, 8, 3);
+  ctx.fillRect(2, 5, 12, 9);
+  ctx.fillStyle = '#b56a43';
+  ctx.fillRect(5, 3, 6, 2);
+  ctx.fillRect(3, 6, 10, 7);
+  ctx.fillStyle = '#e0996c';
+  ctx.fillRect(4, 6, 3, 5);
+  ctx.fillStyle = '#753d24';
+  ctx.fillRect(3, 12, 10, 1);
+  return c;
+}
+
+function bakeCrystalOrb(main, hi) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1c1d2e';
+  ctx.fillRect(3, 3, 10, 10);
+  ctx.fillStyle = main;
+  ctx.fillRect(4, 4, 8, 8);
+  ctx.fillStyle = hi;
+  ctx.fillRect(5, 5, 3, 3);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(5, 5, 2, 2);
+  return c;
+}
+
+function bakeBarrier(main, hi, up) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  if (up) {
+    ctx.fillStyle = '#191826';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = main;
+    ctx.fillRect(1, 1, 14, 14);
+    ctx.fillStyle = hi;
+    ctx.fillRect(2, 2, 12, 3);
+    ctx.fillRect(2, 2, 3, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(5, 6, 6, 5);
+  } else {
+    ctx.strokeStyle = main;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(2.5, 2.5, 11, 11);
+    ctx.fillStyle = main;
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(3, 3, 10, 10);
+  }
+  return c;
+}
+
+function bakeBrazier(lit) {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#242536';
+  ctx.fillRect(3, 6, 10, 8);
+  ctx.fillStyle = '#5d6385';
+  ctx.fillRect(4, 7, 8, 6);
+  ctx.fillStyle = lit ? '#ff7b24' : '#323548';
+  ctx.fillRect(5, 4, 6, 4);
+  if (lit) {
+    ctx.fillStyle = '#fff399';
+    ctx.fillRect(6, 2, 4, 4);
+  }
+  return c;
+}
+
+function bakeFairySpring() {
+  const c = mk(16, 16);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2ea8e0';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#7ef2ff';
+  ctx.fillRect(2, 2, 12, 12);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(6, 6, 4, 4);
+  return c;
+}
+
 // === src/webgl-post.js ===
 // Lightweight WebGL Post-Processing (True Bloom + Hit Chromatic Aberration)
 
@@ -1110,6 +1256,12 @@ class WebGLPost {
   ^ = Stairs Up (exit dungeon)
   i = Signpost
   O = Pedestal
+  o = Smashable Pot (drops rupees/hearts/bombs!)
+  C = Crystal Switch Orb (toggles Red/Blue barriers!)
+  R = Red Barrier Block
+  B = Blue Barrier Block
+  U = Unlit Brazier (ignite with Fire Rod!)
+  F = Fairy Healing Spring (refills full HP!)
 */
 
 const OVERWORLD_ROOMS = {
@@ -1119,56 +1271,70 @@ const OVERWORLD_ROOMS = {
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
       'T..f....pppp....f..T',
-      'T..bb...p..p...bb..T',
+      'T..oo...p..p...bb..T',
       'T.......p..p.......T',
       'T..i....pppp.......T',
       'T.......pppppppppppp',
       'T..f....pppppppppppp',
       'T.......p..........T',
-      'T..bbb..p....bbb...T',
+      'T..bbb..p....ooo...T',
       'T..b.b..p....f.....T',
       'T.......f..........T',
       'TTTTTTTTTTTTTTTTTTTT',
     ],
-    npc: { x: 10 * 16, y: 2 * 16 + 4, name: '長老', text: '勇者啊！東方森林藏著【迴力鏢】，北方裂岩可用【炸彈】炸開。收集鑰匙進入古神殿擊敗炎核守衛吧！' },
-    signText: '路標：往東 → 低語森林（寶箱）｜ 往北 ↑ 裂岩密道',
+    npc: {
+      x: 10 * 16,
+      y: 2 * 16 + 4,
+      kind: 'elder',
+      name: '長老',
+      text: '勇者啊！打碎陶罐與草叢可收集盧比！東方有迴力鏢與道具市集（可買聖火法杖與金劍），北方裂岩用炸彈炸開即可取得鑰匙！',
+    },
+    signText: '路標：往東 → 低語森林（迴力鏢＋水晶機關）｜ 往北 ↑ 裂岩密道',
     enemies: [{ type: 'slime', x: 14 * 16, y: 8 * 16 }],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '1,1': {
-    name: '低語森林 — 迴力鏢之林',
+    name: '低語森林 — 紅藍水晶機關',
     isDungeon: false,
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
-      'T..bbbb..pp..bbbb..T',
-      'T..b..b..pp..b..b..T',
-      'T..b..b..pp..b.....T',
-      'T........pp........T',
+      'T..bbbb..pp..RRRR..T',
+      'T..b..b..pp..R..R..T',
+      'T..b..b..pp..R..R..T',
+      'T........pp..C..R..T',
       'pppppppppppppppppppp',
       'pppppppppppppppppppp',
       'T..f.....bb.....f..T',
-      'T..bb...bbbb...bb..T',
+      'T..oo...bbbb...oo..T',
       'T.......b..b.......T',
       'T...f..........f...T',
       'TTTTTTTTTTTTTTTTTTTT',
     ],
+    signText: '敲擊紅藍水晶球 [C] 可切換紅藍石柱升降！用迴力鏢也能隔空觸發！',
     enemies: [
       { type: 'slime', x: 5 * 16, y: 3 * 16 },
       { type: 'slime', x: 14 * 16, y: 8 * 16 },
       { type: 'octorok', x: 15 * 16, y: 3 * 16 },
     ],
-    chests: [{ id: 'forest_boomerang', x: 4 * 16, y: 2 * 16, reward: 'boomerang', text: '獲得【疾風迴力鏢】！按 Q 切換道具、E 投擲，可擊暈敵人並回收戰利品！' }],
+    chests: [
+      { id: 'forest_boomerang', x: 4 * 16, y: 2 * 16, reward: 'boomerang', text: '獲得【疾風迴力鏢】！按 Q 切換、E 投擲，可隔空敲水晶球、擊暈敵人並回收掉落物！' },
+      { id: 'forest_rupee_vault', x: 14 * 16, y: 2 * 16, reward: 'rupees_30', text: '破解紅藍水晶機關！獲得【30 盧比】！快去東北方市集升級裝備！' },
+    ],
+    shopItems: [],
+    traps: [],
   },
   '2,1': {
-    name: '湖畔遺跡 — 翠綠水域',
+    name: '湖畔聖泉 — 妖精之泉',
     isDungeon: false,
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
       'T~~~~~~~pppp~~~~~~~T',
       'T~~~~~~~p..p~~~~~~~T',
       'T~~~....p..p....~~~T',
-      'T~~~.bb.p..p.bb.~~~T',
-      'pppp====pppp====...T',
+      'T~~~.oo.pFFp.bb.~~~T',
+      'pppp====pFFp====...T',
       'pppp====pppp====...T',
       'T~~~.f..p..p..f.~~~T',
       'T~~~....p..p....~~~T',
@@ -1181,27 +1347,32 @@ const OVERWORLD_ROOMS = {
       { type: 'octorok', x: 15 * 16, y: 8 * 16 },
     ],
     chests: [{ id: 'lake_heart', x: 17 * 16, y: 5 * 16, reward: 'heart_container', text: '獲得【生命之心容器】！最大生命值永久 +1 顆心！' }],
+    shopItems: [],
+    traps: [],
   },
   '0,0': {
-    name: '裂岩密道 — 隱藏寶庫',
+    name: '裂岩密道 — 聖火秘寶',
     isDungeon: false,
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
       'TWWWWWWWXWWWWWWWW..T',
-      'TW.....W.W......W..T',
-      'TW.....W.W..bb..W..T',
+      'TW.....W.W..U.U.W..T',
+      'TW.....W.W..oo..W..T',
       'TW.....WXW......W..T',
       'TWWWWWWW.WWWWWW.pppp',
       'T........p......pppp',
       'T..f.....p...r.....T',
-      'T..r.....p.........T',
+      'T..i.....p.........T',
       'T........pp........T',
       'T..bb....pp....f...T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    signText: '裂開的石壁可以用【炸彈 (Q切換/E放置)】炸開！',
+    signText: '裂石可用炸彈炸開！右側兩個熄滅火盆用【聖火法杖】點燃會出現隱藏秘寶！',
     enemies: [{ type: 'slime', x: 12 * 16, y: 8 * 16 }],
     chests: [{ id: 'ravine_key', x: 4 * 16, y: 2 * 16, reward: 'key', text: '獲得【古神殿小鑰匙】！可以用來開啟神殿深處的上鎖大門！' }],
+    brazierChest: { id: 'ravine_brazier_heart', x: 13 * 16, y: 3 * 16, reward: 'heart_container', text: '點燃雙火盆！獲得隱藏【生命之心容器】！最大生命 +1 顆心！' },
+    shopItems: [],
+    traps: [],
   },
   '1,0': {
     name: '古神殿前庭 — 聖殿入口',
@@ -1209,43 +1380,58 @@ const OVERWORLD_ROOMS = {
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
       'T..WWWWWWWWWWWWWW..T',
-      'T..W............W..T',
+      'T..W..o......o..W..T',
       'T..W....t..t....W..T',
       'T..W.....vv.....W..T',
       'pppp....pppp....pppp',
       'pppp....pppp....pppp',
       'T..f....pppp....f..T',
-      'T..bb....pp....bb..T',
+      'T..oo....pp....bb..T',
       'T........pp........T',
       'T...i....pp........T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    signText: '古神殿入口：裡面棲息著炎核守衛，準備好迴力鏢與炸彈再往下走！',
+    signText: '古神殿入口：裡面有推箱機關、紅藍水晶、尖刺陷阱與炎核守衛！',
     enemies: [
       { type: 'octorok', x: 5 * 16, y: 8 * 16 },
       { type: 'slime', x: 14 * 16, y: 8 * 16 },
     ],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '2,0': {
-    name: '東境石陣 — 補給聖壇',
+    name: '東境市集 — 森林道具屋',
     isDungeon: false,
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
-      'T...r....f.....r...T',
-      'T..rrr..bbb...rrr..T',
-      'T..................T',
-      'T....b........b....T',
-      'pppppp........b....T',
-      'pppppp.............T',
-      'T....f...pp...f....T',
-      'T..r.....pp.....r..T',
+      'T..WWWWWWWWWWWWWW..T',
+      'T..W.t........t.W..T',
+      'T..W............W..T',
+      'T..W............W..T',
+      'pppp............o..T',
+      'pppp............o..T',
+      'T..WWWW..pp..WWWW..T',
+      'T..f.....pp.....f..T',
+      'T..oo....pp....oo..T',
       'T........pp........T',
-      'T..bb....pp....bb..T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    enemies: [{ type: 'stalfos', x: 12 * 16, y: 4 * 16 }],
-    chests: [{ id: 'east_bombs', x: 15 * 16, y: 3 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆！' }],
+    npc: {
+      x: 9 * 16 + 8,
+      y: 2 * 16,
+      kind: 'merchant',
+      name: '森林商人',
+      text: '歡迎光臨！靠近下方展台按 [Space] 就能用盧比購買【炸彈】、【聖火法杖】或【黃金聖樹劍】！',
+    },
+    shopItems: [
+      { id: 'shop_bombs', x: 6 * 16, y: 4 * 16, price: 10, reward: 'bombs', icon: 'bomb', label: '炸彈x5', sold: false },
+      { id: 'shop_firerod', x: 9 * 16 + 8, y: 4 * 16, price: 20, reward: 'fire_rod', icon: 'fireRod', label: '聖火法杖', sold: false },
+      { id: 'shop_sword', x: 13 * 16, y: 4 * 16, price: 30, reward: 'master_sword', icon: 'masterSword', label: '黃金聖樹劍', sold: false },
+    ],
+    enemies: [],
+    chests: [],
+    traps: [],
   },
 };
 
@@ -1255,7 +1441,7 @@ const DUNGEON_ROOMS = {
     isDungeon: true,
     grid: [
       'WWWWWWWWW..WWWWWWWWW',
-      'W..t............t..W',
+      'W..t...o....o...t..W',
       'W..................W',
       'W....W........W....W',
       'W..................W',
@@ -1272,40 +1458,44 @@ const DUNGEON_ROOMS = {
       { type: 'stalfos', x: 13 * 16, y: 6 * 16 },
     ],
     chests: [],
+    shopItems: [],
+    traps: [{ x: 4 * 16, y: 5 * 16 + 8, minX: 3 * 16, maxX: 15 * 16, minY: 5 * 16 + 8, maxY: 5 * 16 + 8, vx: 68, vy: 0 }],
   },
   '0,0': {
-    name: '古神殿 1F — 機關石室',
+    name: '古神殿 1F — 雙重機關石室',
     isDungeon: true,
     grid: [
       'WWWWWWWWWWWWWWWWWWWW',
-      'W..t............t..W',
-      'W..................W',
-      'W......S....P......W',
-      'W..................W',
+      'W..t..BBBBBBBB..t..W',
+      'W.....B......B.....W',
+      'W.....BS....PB.....W',
+      'W.....B..CC..B.....W',
       'W....W........W....W',
-      'W....W........W....W',
+      'W....W...oo...W....W',
       'W..................W',
       'W..................W',
       'W..t............t..W',
       'W..................W',
       'WWWWWWWWW..WWWWWWWWW',
     ],
-    puzzleChest: { id: 'dungeon_switch_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '解開機關！獲得【古神殿小鑰匙】！' },
+    puzzleChest: { id: 'dungeon_switch_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '解開推箱與水晶機關！獲得【古神殿小鑰匙】！' },
     enemies: [{ type: 'bat', x: 5 * 16, y: 6 * 16 }, { type: 'bat', x: 14 * 16, y: 6 * 16 }],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '1,1': {
-    name: '古神殿 1F — 暗影迴廊',
+    name: '古神殿 1F — 聖火迴廊',
     isDungeon: true,
     grid: [
       'WWWWWWWWWDDWWWWWWWWW',
-      'W..t............t..W',
+      'W..t..U......U..t..W',
       'W....W........W....W',
       'W..................W',
       'W......WWXXWW......W',
       '...................W',
       '...................W',
-      'W..................W',
+      'W...o..........o...W',
       'W....W........W....W',
       'W..t............t..W',
       'W..................W',
@@ -1316,14 +1506,17 @@ const DUNGEON_ROOMS = {
       { type: 'bat', x: 13 * 16, y: 3 * 16 },
       { type: 'stalfos', x: 10 * 16, y: 7 * 16 },
     ],
-    chests: [{ id: 'dungeon_bombs', x: 16 * 16, y: 2 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆，準備迎接炎核守衛！' }],
+    chests: [{ id: 'dungeon_bombs', x: 16 * 16, y: 2 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆！' }],
+    brazierChest: { id: 'dungeon_brazier_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '聖火重燃！獲得隱藏【古神殿小鑰匙】！' },
+    shopItems: [],
+    traps: [{ x: 15 * 16, y: 6 * 16, minX: 4 * 16, maxX: 16 * 16, minY: 6 * 16, maxY: 6 * 16, vx: -74, vy: 0 }],
   },
   '1,0': {
     name: '古神殿最深處 — 炎核聖壇 (BOSS)',
     isDungeon: true,
     grid: [
       'WWWWWWWWWWWWWWWWWWWW',
-      'W..t............t..W',
+      'W..t.o........o.t..W',
       'W..................W',
       'W..................W',
       'W..................W',
@@ -1331,13 +1524,15 @@ const DUNGEON_ROOMS = {
       'W..................W',
       'W..................W',
       'W..................W',
-      'W..t............t..W',
+      'W..t.o........o.t..W',
       'W..................W',
       'WWWWWWWWW..WWWWWWWWW',
     ],
     enemies: [],
     hasBoss: true,
     chests: [],
+    shopItems: [],
+    traps: [],
   },
 };
 
@@ -1367,6 +1562,12 @@ function parseGrid(grid, isDungeon) {
         case '^': t = TILE.STAIRS_OUT; break;
         case 'i': t = TILE.SIGN; break;
         case 'O': t = TILE.PEDESTAL; break;
+        case 'o': t = TILE.POT; break;
+        case 'C': t = TILE.CRYSTAL_ORB; break;
+        case 'R': t = TILE.RED_BLOCK; break;
+        case 'B': t = TILE.BLUE_BLOCK; break;
+        case 'U': t = TILE.BRAZIER_OFF; break;
+        case 'F': t = TILE.FAIRY_SPRING; break;
       }
       tiles[y * ROOM_COLS + x] = t;
     }
@@ -1375,11 +1576,9 @@ function parseGrid(grid, isDungeon) {
 }
 class World {
   constructor() {
-    this.maps = {
-      overworld: {},
-      dungeon: {},
-    };
+    this.maps = { overworld: {}, dungeon: {} };
     this.visited = new Set();
+    this.crystalState = 0; // 0 = RED up / BLUE down, 1 = BLUE up / RED down
 
     for (const [key, def] of Object.entries(OVERWORLD_ROOMS)) {
       this.maps.overworld[key] = this._instantiateRoom(key, def);
@@ -1397,10 +1596,14 @@ class World {
       tiles: parseGrid(def.grid, def.isDungeon),
       npc: def.npc ? { ...def.npc } : null,
       signText: def.signText || null,
-      enemySpawns: def.enemies.map((e) => ({ ...e })),
-      chests: def.chests.map((c) => ({ ...c, opened: false })),
+      enemySpawns: (def.enemies || []).map((e) => ({ ...e })),
+      chests: (def.chests || []).map((c) => ({ ...c, opened: false })),
       puzzleChest: def.puzzleChest ? { ...def.puzzleChest, revealed: false, opened: false } : null,
+      brazierChest: def.brazierChest ? { ...def.brazierChest, revealed: false, opened: false } : null,
+      shopItems: (def.shopItems || []).map((s) => ({ ...s })),
+      trapSpawns: (def.traps || []).map((tr) => ({ ...tr })),
       switchSolved: false,
+      brazierSolved: false,
       hasBoss: Boolean(def.hasBoss),
       bossDefeated: false,
       relicSpawned: false,
@@ -1416,6 +1619,8 @@ class World {
   }
 
   isSolidTile(t) {
+    if (t === TILE.RED_BLOCK) return this.crystalState === 0;
+    if (t === TILE.BLUE_BLOCK) return this.crystalState === 1;
     return (
       t === TILE.TREE ||
       t === TILE.WATER ||
@@ -1426,7 +1631,11 @@ class World {
       t === TILE.PUSH_BLOCK ||
       t === TILE.LOCKED_DOOR ||
       t === TILE.TORCH ||
-      t === TILE.SIGN
+      t === TILE.SIGN ||
+      t === TILE.POT ||
+      t === TILE.CRYSTAL_ORB ||
+      t === TILE.BRAZIER_OFF ||
+      t === TILE.BRAZIER_ON
     );
   }
 }
@@ -1469,11 +1678,13 @@ class ZeldaGame {
       dir: DIR.DOWN,
       hp: 6,       // 3 full hearts (each heart = 2 half-hearts)
       maxHp: 6,
-      rupees: 0,
+      rupees: 10,
       keys: 0,
       bombs: 4,
       hasBoomerang: false,
-      equipped: 'bomb', // 'bomb' | 'boomerang'
+      hasFireRod: false,
+      swordLevel: 1,    // 1 = Hero Sword, 2 = Master Blade (Golden)
+      equipped: 'bomb', // 'bomb' | 'boomerang' | 'fire_rod'
       attackTimer: 0,
       attackCooldown: 0,
       chargeTimer: 0,
@@ -1485,9 +1696,12 @@ class ZeldaGame {
       knockVy: 0,
       walkAnim: 0,
       pushTimer: 0,
+      crystalCooldown: 0,
+      fairyCooldown: 0,
     };
 
     this.enemies = [];
+    this.traps = [];
     this.projectiles = [];
     this.bombs = [];
     this.boomerang = null;
@@ -1508,6 +1722,7 @@ class ZeldaGame {
 
   _spawnRoomEntities() {
     this.enemies = [];
+    this.traps = (this.room.trapSpawns || []).map((tr) => ({ ...tr, w: 14, h: 14 }));
     this.projectiles = [];
     this.bombs = [];
     this.boomerang = null;
@@ -1671,6 +1886,7 @@ class ZeldaGame {
     }
 
     this._updatePlayer(dt, input);
+    this._updateTraps(dt);
     this._updateBombs(dt);
     this._updateBoomerang(dt);
     this._updateProjectiles(dt);
@@ -1680,18 +1896,40 @@ class ZeldaGame {
     this._updateParticles(dt);
   }
 
+  _updateTraps(dt) {
+    const p = this.player;
+    for (const tr of this.traps) {
+      tr.x += tr.vx * dt;
+      tr.y += tr.vy * dt;
+      if (tr.x <= tr.minX) { tr.x = tr.minX; tr.vx = Math.abs(tr.vx); }
+      if (tr.x >= tr.maxX) { tr.x = tr.maxX; tr.vx = -Math.abs(tr.vx); }
+      if (tr.y <= tr.minY) { tr.y = tr.minY; tr.vy = Math.abs(tr.vy); }
+      if (tr.y >= tr.maxY) { tr.y = tr.maxY; tr.vy = -Math.abs(tr.vy); }
+      if (overlaps(tr, p)) {
+        this._hurtPlayer(p.x - tr.x, p.y - tr.y);
+      }
+    }
+  }
+
   _updatePlayer(dt, input) {
     const p = this.player;
     if (p.invulnTimer > 0) p.invulnTimer -= dt;
     if (p.attackCooldown > 0) p.attackCooldown -= dt;
     if (p.attackTimer > 0) p.attackTimer -= dt;
     if (p.spinTimer > 0) p.spinTimer -= dt;
+    if (p.crystalCooldown > 0) p.crystalCooldown -= dt;
+    if (p.fairyCooldown > 0) p.fairyCooldown -= dt;
 
-    // Cycle equipped sub-item
+    // Cycle equipped sub-item (bomb -> boomerang -> fire_rod)
     if (input.cyclePressed) {
-      if (p.hasBoomerang) {
-        p.equipped = p.equipped === 'bomb' ? 'boomerang' : 'bomb';
-        this.spawnText(p.x + 6, p.y - 4, p.equipped === 'boomerang' ? '迴力鏢' : '炸彈', '#8effb0');
+      const owned = ['bomb'];
+      if (p.hasBoomerang) owned.push('boomerang');
+      if (p.hasFireRod) owned.push('fire_rod');
+      if (owned.length > 1) {
+        const nextIdx = (owned.indexOf(p.equipped) + 1) % owned.length;
+        p.equipped = owned[nextIdx];
+        const label = p.equipped === 'boomerang' ? '疾風迴力鏢' : p.equipped === 'fire_rod' ? '聖火法杖' : '炸彈';
+        this.spawnText(p.x + 6, p.y - 4, label, '#8effb0');
       }
     }
 
@@ -1739,7 +1977,7 @@ class ZeldaGame {
       p.chargeTimer = 0;
     }
 
-    // Sub-item use (Bomb or Boomerang)
+    // Sub-item use (Bomb / Boomerang / Fire Rod)
     if (input.itemPressed && p.rollTimer <= 0) {
       if (p.equipped === 'boomerang' && p.hasBoomerang && !this.boomerang) {
         const dv = DIR_VEC[p.dir];
@@ -1754,6 +1992,22 @@ class ZeldaGame {
           dist: 0,
         };
         this.sound.playBoomerang();
+      } else if (p.equipped === 'fire_rod' && p.hasFireRod) {
+        const dv = DIR_VEC[p.dir];
+        this.projectiles.push({
+          fromPlayer: true,
+          kind: 'player_fire',
+          x: p.x + 3 + dv.x * 10,
+          y: p.y + 3 + dv.y * 10,
+          w: 7,
+          h: 7,
+          vx: dv.x * 185,
+          vy: dv.y * 185,
+          life: 1.5,
+          alive: true,
+        });
+        this.sound.playSwordBeam();
+        this.burst(p.x + 6 + dv.x * 8, p.y + 6 + dv.y * 8, 6, '#ff9838', 55);
       } else if (p.equipped === 'bomb' && p.bombs > 0) {
         p.bombs -= 1;
         const dv = DIR_VEC[p.dir];
@@ -1805,10 +2059,17 @@ class ZeldaGame {
     this._movePlayerAxis(vx * dt, 0, mx, 0, dt);
     this._movePlayerAxis(0, vy * dt, 0, my, dt);
 
-    // Check Stairs & Relic
+    // Check Stairs, Fairy Healing Spring & Relic
     const centerTx = Math.floor((p.x + p.w * 0.5) / TILE_SIZE);
     const centerTy = Math.floor((p.y + p.h * 0.5) / TILE_SIZE);
     const under = this.getTile(this.room, centerTx, centerTy);
+    if (under === TILE.FAIRY_SPRING && p.hp < p.maxHp && p.fairyCooldown <= 0) {
+      p.hp = p.maxHp;
+      p.fairyCooldown = 2.0;
+      this.sound.playSecret();
+      this.burst(p.x + 6, p.y + 6, 20, '#8ef7ff', 95);
+      this.spawnText(p.x + 6, p.y - 8, '妖精祝福：體力全滿！', '#9efffa');
+    }
     if (under === TILE.STAIRS_IN) {
       this._enterZone('dungeon', 0, 1, 9 * 16 + 2, 7 * 16);
       return;
@@ -1922,6 +2183,34 @@ class ZeldaGame {
       }
     }
 
+    // Shop Items
+    for (const s of this.room.shopItems || []) {
+      if (s.sold) continue;
+      if (overlaps(probe, { x: s.x - 4, y: s.y - 4, w: 22, h: 22 })) {
+        if (p.rupees < s.price) {
+          this.openDialogue('森林商人', `這件【${s.label}】需要 ${s.price} 盧比喔！多打碎陶罐、草叢或解謎寶箱來收集盧比吧。`);
+          return true;
+        }
+        p.rupees -= s.price;
+        this.sound.playChest();
+        this.burst(s.x + 6, s.y + 6, 18, '#ffe066', 95);
+        if (s.reward === 'bombs') {
+          p.bombs += 5;
+          this.openDialogue('購買成功', '獲得【炸彈 x5】！');
+        } else if (s.reward === 'fire_rod') {
+          s.sold = true;
+          p.hasFireRod = true;
+          p.equipped = 'fire_rod';
+          this.openDialogue('購買成功', '獲得【聖火法杖】！按 Q 切換、E 發射火球，可點燃熄滅的火盆解謎並灼燒敵人！');
+        } else if (s.reward === 'master_sword') {
+          s.sold = true;
+          p.swordLevel = 2;
+          this.openDialogue('購買成功', '獲得【黃金聖樹劍】！劍刃攻擊力永久加倍（2倍傷害）！');
+        }
+        return true;
+      }
+    }
+
     // Chests
     for (const c of this.room.chests) {
       if (!c.opened && overlaps(probe, { x: c.x, y: c.y, w: 16, h: 16 })) {
@@ -1935,6 +2224,8 @@ class ZeldaGame {
           p.keys += 1;
         } else if (c.reward === 'bombs') {
           p.bombs += 5;
+        } else if (c.reward === 'rupees_30') {
+          p.rupees += 30;
         } else if (c.reward === 'heart_container') {
           p.maxHp += 2;
           p.hp = p.maxHp;
@@ -1970,23 +2261,32 @@ class ZeldaGame {
       };
     }
 
-    // Cut bushes in sword hitbox
+    // Cut bushes, smash pots, flip crystal orbs in sword hitbox
     const l = Math.max(0, Math.floor(box.x / TILE_SIZE));
     const r = Math.min(ROOM_COLS - 1, Math.floor((box.x + box.w) / TILE_SIZE));
     const t = Math.max(0, Math.floor(box.y / TILE_SIZE));
     const b = Math.min(ROOM_ROWS - 1, Math.floor((box.y + box.h) / TILE_SIZE));
+    const floor = this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS;
     for (let ty = t; ty <= b; ty++) {
       for (let tx = l; tx <= r; tx++) {
-        if (this.getTile(this.room, tx, ty) === TILE.BUSH) {
+        const tile = this.getTile(this.room, tx, ty);
+        if (tile === TILE.BUSH) {
           this.setTile(this.room, tx, ty, TILE.GRASS);
           this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#58df72', 75);
           this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4);
+        } else if (tile === TILE.POT) {
+          this.setTile(this.room, tx, ty, floor);
+          this.sound.playHit();
+          this.burst(tx * 16 + 8, ty * 16 + 8, 10, '#e0996c', 85);
+          this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+        } else if (tile === TILE.CRYSTAL_ORB) {
+          this._toggleCrystalSwitch(tx, ty);
         }
       }
     }
 
     // Hit Enemies
-    const dmg = isSpin ? 2 : 1;
+    const dmg = (isSpin ? 2 : 1) * p.swordLevel;
     for (const e of this.enemies) {
       if (e.alive && overlaps(box, e)) {
         this._damageEnemy(e, dmg, e.x - p.x, e.y - p.y);
@@ -1999,11 +2299,49 @@ class ZeldaGame {
     }
   }
 
-  _maybeSpawnDrop(x, y) {
+  _maybeSpawnDrop(x, y, guaranteed = false) {
     const roll = Math.random();
-    if (roll < 0.26) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
-    else if (roll < 0.44) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
-    else if (roll < 0.54) this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+    if (guaranteed) {
+      if (roll < 0.5) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
+      else if (roll < 0.8) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
+      else this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+      return;
+    }
+    if (roll < 0.28) this.drops.push({ kind: 'rupee', x, y, w: 8, h: 9 });
+    else if (roll < 0.46) this.drops.push({ kind: 'heart', x, y, w: 9, h: 9 });
+    else if (roll < 0.56) this.drops.push({ kind: 'bomb', x, y, w: 9, h: 9 });
+  }
+
+  _toggleCrystalSwitch(tx, ty) {
+    if (this.player.crystalCooldown > 0) return;
+    this.player.crystalCooldown = 0.28;
+    this.world.crystalState = this.world.crystalState === 0 ? 1 : 0;
+    this.sound.playDoorOpen();
+    this.addShake(2.5);
+    const col = this.world.crystalState === 0 ? '#ff6478' : '#4ae3ff';
+    this.burst(tx * 16 + 8, ty * 16 + 8, 12, col, 85);
+    this.spawnText(tx * 16 + 8, ty * 16 - 4, this.world.crystalState === 0 ? '紅柱升起' : '藍柱升起', col);
+  }
+
+  _igniteBrazier(tx, ty) {
+    this.setTile(this.room, tx, ty, TILE.BRAZIER_ON);
+    this.sound.playDoorOpen();
+    this.burst(tx * 16 + 8, ty * 16 + 4, 14, '#ff9838', 80);
+    // Check if any unlit braziers remain in room
+    let remaining = 0;
+    for (let i = 0; i < this.room.tiles.length; i++) {
+      if (this.room.tiles[i] === TILE.BRAZIER_OFF) remaining++;
+    }
+    if (remaining === 0 && !this.room.brazierSolved) {
+      this.room.brazierSolved = true;
+      this.sound.playSecret();
+      if (this.room.brazierChest) {
+        this.room.brazierChest.revealed = true;
+        this.room.chests.push(this.room.brazierChest);
+        this.burst(this.room.brazierChest.x + 8, this.room.brazierChest.y + 8, 22, '#ffe066', 100);
+        this.spawnText(this.room.brazierChest.x + 8, this.room.brazierChest.y - 6, '聖火秘寶出現！', '#ffe066');
+      }
+    }
   }
 
   _damageEnemy(e, dmg, kx, ky) {
@@ -2117,7 +2455,14 @@ class ZeldaGame {
       const tx = Math.floor((bm.x + 4) / TILE_SIZE);
       const ty = Math.floor((bm.y + 4) / TILE_SIZE);
       const tile = this.getTile(this.room, tx, ty);
-      if (bm.dist > 110 || tile === TILE.TREE || tile === TILE.DUNGEON_WALL || tile === TILE.ROCK) {
+      if (tile === TILE.CRYSTAL_ORB) {
+        this._toggleCrystalSwitch(tx, ty);
+        bm.returning = true;
+      } else if (tile === TILE.POT) {
+        this.setTile(this.room, tx, ty, this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS);
+        this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#e0996c', 75);
+        this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+      } else if (bm.dist > 115 || tile === TILE.TREE || tile === TILE.DUNGEON_WALL || tile === TILE.ROCK) {
         bm.returning = true;
       }
     } else {
@@ -2167,20 +2512,39 @@ class ZeldaGame {
       }
       const tx = Math.floor((pr.x + 3) / TILE_SIZE);
       const ty = Math.floor((pr.y + 3) / TILE_SIZE);
-      if (this.world.isSolidTile(this.getTile(this.room, tx, ty)) && this.getTile(this.room, tx, ty) !== TILE.WATER) {
+      const hitTile = this.getTile(this.room, tx, ty);
+      if (pr.fromPlayer && hitTile === TILE.CRYSTAL_ORB) {
+        this._toggleCrystalSwitch(tx, ty);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (pr.kind === 'player_fire' && hitTile === TILE.BRAZIER_OFF) {
+        this._igniteBrazier(tx, ty);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (pr.fromPlayer && hitTile === TILE.POT) {
+        this.setTile(this.room, tx, ty, this.room.isDungeon ? TILE.DUNGEON_FLOOR : TILE.GRASS);
+        this.burst(tx * 16 + 8, ty * 16 + 8, 8, '#e0996c', 75);
+        this._maybeSpawnDrop(tx * 16 + 4, ty * 16 + 4, true);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      if (this.world.isSolidTile(hitTile) && hitTile !== TILE.WATER) {
         this.burst(pr.x + 3, pr.y + 3, 5, '#ffe680', 55);
         this.projectiles.splice(i, 1);
         continue;
       }
       if (pr.fromPlayer) {
+        const pdmg = pr.kind === 'player_fire' ? 2 : 1;
         for (const e of this.enemies) {
           if (e.alive && overlaps(pr, e)) {
-            this._damageEnemy(e, 1, pr.vx, pr.vy);
+            this._damageEnemy(e, pdmg, pr.vx, pr.vy);
             pr.life = 0;
           }
         }
         if (this.boss && this.boss.alive && overlaps(pr, this.boss)) {
-          this._damageBoss(1);
+          this._damageBoss(pdmg);
           pr.life = 0;
         }
       } else if (overlaps(pr, this.player)) {
@@ -2447,14 +2811,14 @@ class ZeldaRenderer {
       const oy = -tr.dy * PLAY_H * ease;
       ctx.save();
       ctx.translate(Math.round(ox), Math.round(oy));
-      this._drawRoomTiles(ctx, tr.fromRoom, game.time);
+      this._drawRoomTiles(ctx, tr.fromRoom, game.world.crystalState, game.time);
       ctx.restore();
       ctx.save();
       ctx.translate(Math.round(ox + tr.dx * PLAY_W), Math.round(oy + tr.dy * PLAY_H));
-      this._drawRoomTiles(ctx, tr.toRoom, game.time);
+      this._drawRoomTiles(ctx, tr.toRoom, game.world.crystalState, game.time);
       ctx.restore();
     } else {
-      this._drawRoomTiles(ctx, game.room, game.time);
+      this._drawRoomTiles(ctx, game.room, game.world.crystalState, game.time);
       this._drawRoomEntities(ctx, game);
       this._drawHero(ctx, game);
       this._drawEffects(ctx, game);
@@ -2485,8 +2849,9 @@ class ZeldaRenderer {
     ctx.restore();
   }
 
-  _drawRoomTiles(ctx, room, time) {
+  _drawRoomTiles(ctx, room, crystalState, time) {
     const t = this.atlas.tiles;
+    const baseFloor = room.isDungeon ? t.dungeonFloor : t.grass;
     for (let y = 0; y < ROOM_ROWS; y++) {
       for (let x = 0; x < ROOM_COLS; x++) {
         const tile = room.tiles[y * ROOM_COLS + x];
@@ -2510,6 +2875,38 @@ class ZeldaRenderer {
           case TILE.STAIRS_OUT: ctx.drawImage(t.stairsOut, px, py); break;
           case TILE.SIGN: ctx.drawImage(t.sign, px, py); break;
           case TILE.PEDESTAL: ctx.drawImage(t.pedestal, px, py); break;
+          case TILE.POT:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.pot, px, py);
+            break;
+          case TILE.CRYSTAL_ORB:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 0 ? t.crystalRed : t.crystalBlue, px, py);
+            break;
+          case TILE.RED_BLOCK:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 0 ? t.redUp : t.redDown, px, py);
+            break;
+          case TILE.BLUE_BLOCK:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(crystalState === 1 ? t.blueUp : t.blueDown, px, py);
+            break;
+          case TILE.BRAZIER_OFF:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.brazierOff, px, py);
+            break;
+          case TILE.BRAZIER_ON:
+            ctx.drawImage(baseFloor, px, py);
+            ctx.drawImage(t.brazierOn, px, py);
+            break;
+          case TILE.FAIRY_SPRING: {
+            ctx.drawImage(t.fairySpring, px, py);
+            const fx = px + 8 + Math.cos(time * 4 + x) * 4;
+            const fy = py + 8 + Math.sin(time * 5 + y) * 4;
+            ctx.fillStyle = '#fff5b0';
+            ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
+            break;
+          }
           case TILE.WATER: {
             ctx.fillStyle = '#247bb8';
             ctx.fillRect(px, py, 16, 16);
@@ -2543,9 +2940,38 @@ class ZeldaRenderer {
       ctx.drawImage(c.opened ? this.atlas.items.chestOpen : this.atlas.items.chestClosed, c.x, c.y);
     }
 
-    // Elder NPC
+    // Elder / Merchant NPC
     if (room.npc) {
-      ctx.drawImage(this.atlas.npcs.elder, room.npc.x, room.npc.y);
+      const spr = room.npc.kind === 'merchant' ? this.atlas.npcs.merchant : this.atlas.npcs.elder;
+      ctx.drawImage(spr, room.npc.x, room.npc.y);
+    }
+
+    // Shop Display Items
+    for (const s of room.shopItems || []) {
+      if (s.sold) continue;
+      ctx.fillStyle = '#3b2e26';
+      ctx.fillRect(s.x - 1, s.y + 6, 14, 6);
+      const bob = Math.sin(game.time * 4 + s.x) * 1.2;
+      const iconSpr = this.atlas.items[s.icon] || this.atlas.items.bomb;
+      ctx.drawImage(iconSpr, Math.round(s.x + 1), Math.round(s.y - 1 + bob));
+    }
+
+    // Patrolling Dungeon Blade Traps
+    for (const tr of game.traps || []) {
+      const tx = Math.round(tr.x);
+      const ty = Math.round(tr.y);
+      ctx.fillStyle = '#1b1d2b';
+      ctx.fillRect(tx, ty, 14, 14);
+      ctx.fillStyle = '#8b96b8';
+      ctx.fillRect(tx + 2, ty + 2, 10, 10);
+      ctx.fillStyle = '#ff4b64';
+      ctx.fillRect(tx + 5, ty + 5, 4, 4);
+      // Corner spikes
+      ctx.fillStyle = '#edf2ff';
+      ctx.fillRect(tx - 1, ty + 6, 2, 2);
+      ctx.fillRect(tx + 13, ty + 6, 2, 2);
+      ctx.fillRect(tx + 6, ty - 1, 2, 2);
+      ctx.fillRect(tx + 6, ty + 13, 2, 2);
     }
 
     // Drops
@@ -2625,15 +3051,15 @@ class ZeldaRenderer {
     // Projectiles
     for (const pr of game.projectiles) {
       if (pr.kind === 'beam') {
-        ctx.fillStyle = '#7ef7ff';
+        ctx.fillStyle = game.player.swordLevel >= 2 ? '#ffd54f' : '#7ef7ff';
         ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 4, 4);
-      } else if (pr.kind === 'fire') {
-        ctx.fillStyle = '#ff6b2e';
-        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
+      } else if (pr.kind === 'fire' || pr.kind === 'player_fire') {
+        ctx.fillStyle = '#ff5e2e';
+        ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 7, 7);
         ctx.fillStyle = '#fff08a';
-        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 3, 3);
+        ctx.fillRect(Math.round(pr.x + 1), Math.round(pr.y + 1), 4, 4);
       } else {
         ctx.fillStyle = '#9c7858';
         ctx.fillRect(Math.round(pr.x), Math.round(pr.y), 6, 6);
@@ -2691,7 +3117,7 @@ class ZeldaRenderer {
       ctx.beginPath();
       ctx.arc(0, 0, 14, baseAngle - 1.1, a0);
       ctx.stroke();
-      ctx.strokeStyle = '#7ef7ff';
+      ctx.strokeStyle = p.swordLevel >= 2 ? '#ffd54f' : '#7ef7ff';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, 0);
@@ -2724,7 +3150,8 @@ class ZeldaRenderer {
     glow(game.player.x + 6, game.player.y + 6, 36, 'rgba(130, 230, 255, 0.16)');
     for (let y = 0; y < ROOM_ROWS; y++) {
       for (let x = 0; x < ROOM_COLS; x++) {
-        if (game.room.tiles[y * ROOM_COLS + x] === TILE.TORCH) {
+        const tile = game.room.tiles[y * ROOM_COLS + x];
+        if (tile === TILE.TORCH || tile === TILE.BRAZIER_ON) {
           const r = 34 + Math.sin(game.time * 12 + x) * 3;
           glow(x * 16 + 8, y * 16 + 6, r, 'rgba(255, 164, 62, 0.30)');
         }
@@ -2739,6 +3166,18 @@ class ZeldaRenderer {
   _drawFloatingTextsHD(ctx, game) {
     ctx.font = '700 15px "Noto Sans TC", "Microsoft JhengHei", ui-monospace, sans-serif';
     ctx.textAlign = 'center';
+    // Shop price labels in crisp HD
+    for (const s of game.room.shopItems || []) {
+      if (s.sold) continue;
+      const sx = (s.x + 6) * 3;
+      const sy = (HUD_H + s.y + 18) * 3;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(10, 12, 18, 0.92)';
+      const tag = `${s.label} ${s.price}R`;
+      ctx.strokeText(tag, sx, sy);
+      ctx.fillStyle = game.player.rupees >= s.price ? '#ffe066' : '#ff8a9e';
+      ctx.fillText(tag, sx, sy);
+    }
     for (const t of game.texts) {
       const sx = t.x * 3;
       const sy = (HUD_H + t.y) * 3;
@@ -2789,13 +3228,25 @@ class ZeldaRenderer {
 
     // Equipped Item Slot
     ctx.fillStyle = '#1b2430';
-    ctx.fillRect(126, 36, 152, 26);
+    ctx.fillRect(126, 36, 162, 26);
     ctx.strokeStyle = '#4f6580';
-    ctx.strokeRect(126.5, 36.5, 151, 25);
-    ctx.drawImage(p.equipped === 'boomerang' ? this.atlas.items.boomerang : this.atlas.items.bomb, 134, 41, 18, 16);
+    ctx.strokeRect(126.5, 36.5, 161, 25);
+    const eqIcon =
+      p.equipped === 'boomerang'
+        ? this.atlas.items.boomerang
+        : p.equipped === 'fire_rod'
+        ? this.atlas.items.fireRod
+        : this.atlas.items.bomb;
+    ctx.drawImage(eqIcon, 134, 41, 18, 16);
     ctx.font = `700 13px ${UI_FONT}`;
     ctx.fillStyle = '#eaf4ff';
-    ctx.fillText(p.equipped === 'boomerang' ? '裝備：迴力鏢 [E]' : `裝備：炸彈 x${p.bombs} [E]`, 158, 54);
+    const eqText =
+      p.equipped === 'boomerang'
+        ? '裝備：迴力鏢 [E]'
+        : p.equipped === 'fire_rod'
+        ? '裝備：聖火法杖 [E]'
+        : `裝備：炸彈 x${p.bombs} [E]`;
+    ctx.fillText(eqText, 158, 54);
 
     // Counters (Rupees / Keys / Bombs)
     ctx.drawImage(this.atlas.items.rupee, 304, 24, 18, 22);

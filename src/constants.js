@@ -51,4 +51,11 @@ export const TILE = {
   BRIDGE: 16,
   SIGN: 17,
   PEDESTAL: 18,
+  POT: 19,          // Smashable ceramic pot (drops loot!)
+  CRYSTAL_ORB: 20,  // Hit to toggle Red/Blue barriers!
+  RED_BLOCK: 21,    // Raised when crystalState === 0
+  BLUE_BLOCK: 22,   // Raised when crystalState === 1
+  BRAZIER_OFF: 23,  // Unlit brazier — ignite with Fire Rod!
+  BRAZIER_ON: 24,   // Lit brazier
+  FAIRY_SPRING: 25, // Sparkling healing fairy fountain!
 };

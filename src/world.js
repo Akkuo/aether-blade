@@ -20,6 +20,12 @@ import { ROOM_COLS, ROOM_ROWS, TILE } from './constants.js';
   ^ = Stairs Up (exit dungeon)
   i = Signpost
   O = Pedestal
+  o = Smashable Pot (drops rupees/hearts/bombs!)
+  C = Crystal Switch Orb (toggles Red/Blue barriers!)
+  R = Red Barrier Block
+  B = Blue Barrier Block
+  U = Unlit Brazier (ignite with Fire Rod!)
+  F = Fairy Healing Spring (refills full HP!)
 */
 
 const OVERWORLD_ROOMS = {
@@ -29,56 +35,70 @@ const OVERWORLD_ROOMS = {
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
       'T..f....pppp....f..T',
-      'T..bb...p..p...bb..T',
+      'T..oo...p..p...bb..T',
       'T.......p..p.......T',
       'T..i....pppp.......T',
       'T.......pppppppppppp',
       'T..f....pppppppppppp',
       'T.......p..........T',
-      'T..bbb..p....bbb...T',
+      'T..bbb..p....ooo...T',
       'T..b.b..p....f.....T',
       'T.......f..........T',
       'TTTTTTTTTTTTTTTTTTTT',
     ],
-    npc: { x: 10 * 16, y: 2 * 16 + 4, name: '長老', text: '勇者啊！東方森林藏著【迴力鏢】，北方裂岩可用【炸彈】炸開。收集鑰匙進入古神殿擊敗炎核守衛吧！' },
-    signText: '路標：往東 → 低語森林（寶箱）｜ 往北 ↑ 裂岩密道',
+    npc: {
+      x: 10 * 16,
+      y: 2 * 16 + 4,
+      kind: 'elder',
+      name: '長老',
+      text: '勇者啊！打碎陶罐與草叢可收集盧比！東方有迴力鏢與道具市集（可買聖火法杖與金劍），北方裂岩用炸彈炸開即可取得鑰匙！',
+    },
+    signText: '路標：往東 → 低語森林（迴力鏢＋水晶機關）｜ 往北 ↑ 裂岩密道',
     enemies: [{ type: 'slime', x: 14 * 16, y: 8 * 16 }],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '1,1': {
-    name: '低語森林 — 迴力鏢之林',
+    name: '低語森林 — 紅藍水晶機關',
     isDungeon: false,
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
-      'T..bbbb..pp..bbbb..T',
-      'T..b..b..pp..b..b..T',
-      'T..b..b..pp..b.....T',
-      'T........pp........T',
+      'T..bbbb..pp..RRRR..T',
+      'T..b..b..pp..R..R..T',
+      'T..b..b..pp..R..R..T',
+      'T........pp..C..R..T',
       'pppppppppppppppppppp',
       'pppppppppppppppppppp',
       'T..f.....bb.....f..T',
-      'T..bb...bbbb...bb..T',
+      'T..oo...bbbb...oo..T',
       'T.......b..b.......T',
       'T...f..........f...T',
       'TTTTTTTTTTTTTTTTTTTT',
     ],
+    signText: '敲擊紅藍水晶球 [C] 可切換紅藍石柱升降！用迴力鏢也能隔空觸發！',
     enemies: [
       { type: 'slime', x: 5 * 16, y: 3 * 16 },
       { type: 'slime', x: 14 * 16, y: 8 * 16 },
       { type: 'octorok', x: 15 * 16, y: 3 * 16 },
     ],
-    chests: [{ id: 'forest_boomerang', x: 4 * 16, y: 2 * 16, reward: 'boomerang', text: '獲得【疾風迴力鏢】！按 Q 切換道具、E 投擲，可擊暈敵人並回收戰利品！' }],
+    chests: [
+      { id: 'forest_boomerang', x: 4 * 16, y: 2 * 16, reward: 'boomerang', text: '獲得【疾風迴力鏢】！按 Q 切換、E 投擲，可隔空敲水晶球、擊暈敵人並回收掉落物！' },
+      { id: 'forest_rupee_vault', x: 14 * 16, y: 2 * 16, reward: 'rupees_30', text: '破解紅藍水晶機關！獲得【30 盧比】！快去東北方市集升級裝備！' },
+    ],
+    shopItems: [],
+    traps: [],
   },
   '2,1': {
-    name: '湖畔遺跡 — 翠綠水域',
+    name: '湖畔聖泉 — 妖精之泉',
     isDungeon: false,
     grid: [
       'TTTTTTTTTppTTTTTTTTT',
       'T~~~~~~~pppp~~~~~~~T',
       'T~~~~~~~p..p~~~~~~~T',
       'T~~~....p..p....~~~T',
-      'T~~~.bb.p..p.bb.~~~T',
-      'pppp====pppp====...T',
+      'T~~~.oo.pFFp.bb.~~~T',
+      'pppp====pFFp====...T',
       'pppp====pppp====...T',
       'T~~~.f..p..p..f.~~~T',
       'T~~~....p..p....~~~T',
@@ -91,27 +111,32 @@ const OVERWORLD_ROOMS = {
       { type: 'octorok', x: 15 * 16, y: 8 * 16 },
     ],
     chests: [{ id: 'lake_heart', x: 17 * 16, y: 5 * 16, reward: 'heart_container', text: '獲得【生命之心容器】！最大生命值永久 +1 顆心！' }],
+    shopItems: [],
+    traps: [],
   },
   '0,0': {
-    name: '裂岩密道 — 隱藏寶庫',
+    name: '裂岩密道 — 聖火秘寶',
     isDungeon: false,
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
       'TWWWWWWWXWWWWWWWW..T',
-      'TW.....W.W......W..T',
-      'TW.....W.W..bb..W..T',
+      'TW.....W.W..U.U.W..T',
+      'TW.....W.W..oo..W..T',
       'TW.....WXW......W..T',
       'TWWWWWWW.WWWWWW.pppp',
       'T........p......pppp',
       'T..f.....p...r.....T',
-      'T..r.....p.........T',
+      'T..i.....p.........T',
       'T........pp........T',
       'T..bb....pp....f...T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    signText: '裂開的石壁可以用【炸彈 (Q切換/E放置)】炸開！',
+    signText: '裂石可用炸彈炸開！右側兩個熄滅火盆用【聖火法杖】點燃會出現隱藏秘寶！',
     enemies: [{ type: 'slime', x: 12 * 16, y: 8 * 16 }],
     chests: [{ id: 'ravine_key', x: 4 * 16, y: 2 * 16, reward: 'key', text: '獲得【古神殿小鑰匙】！可以用來開啟神殿深處的上鎖大門！' }],
+    brazierChest: { id: 'ravine_brazier_heart', x: 13 * 16, y: 3 * 16, reward: 'heart_container', text: '點燃雙火盆！獲得隱藏【生命之心容器】！最大生命 +1 顆心！' },
+    shopItems: [],
+    traps: [],
   },
   '1,0': {
     name: '古神殿前庭 — 聖殿入口',
@@ -119,43 +144,58 @@ const OVERWORLD_ROOMS = {
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
       'T..WWWWWWWWWWWWWW..T',
-      'T..W............W..T',
+      'T..W..o......o..W..T',
       'T..W....t..t....W..T',
       'T..W.....vv.....W..T',
       'pppp....pppp....pppp',
       'pppp....pppp....pppp',
       'T..f....pppp....f..T',
-      'T..bb....pp....bb..T',
+      'T..oo....pp....bb..T',
       'T........pp........T',
       'T...i....pp........T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    signText: '古神殿入口：裡面棲息著炎核守衛，準備好迴力鏢與炸彈再往下走！',
+    signText: '古神殿入口：裡面有推箱機關、紅藍水晶、尖刺陷阱與炎核守衛！',
     enemies: [
       { type: 'octorok', x: 5 * 16, y: 8 * 16 },
       { type: 'slime', x: 14 * 16, y: 8 * 16 },
     ],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '2,0': {
-    name: '東境石陣 — 補給聖壇',
+    name: '東境市集 — 森林道具屋',
     isDungeon: false,
     grid: [
       'TTTTTTTTTTTTTTTTTTTT',
-      'T...r....f.....r...T',
-      'T..rrr..bbb...rrr..T',
-      'T..................T',
-      'T....b........b....T',
-      'pppppp........b....T',
-      'pppppp.............T',
-      'T....f...pp...f....T',
-      'T..r.....pp.....r..T',
+      'T..WWWWWWWWWWWWWW..T',
+      'T..W.t........t.W..T',
+      'T..W............W..T',
+      'T..W............W..T',
+      'pppp............o..T',
+      'pppp............o..T',
+      'T..WWWW..pp..WWWW..T',
+      'T..f.....pp.....f..T',
+      'T..oo....pp....oo..T',
       'T........pp........T',
-      'T..bb....pp....bb..T',
       'TTTTTTTTTppTTTTTTTTT',
     ],
-    enemies: [{ type: 'stalfos', x: 12 * 16, y: 4 * 16 }],
-    chests: [{ id: 'east_bombs', x: 15 * 16, y: 3 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆！' }],
+    npc: {
+      x: 9 * 16 + 8,
+      y: 2 * 16,
+      kind: 'merchant',
+      name: '森林商人',
+      text: '歡迎光臨！靠近下方展台按 [Space] 就能用盧比購買【炸彈】、【聖火法杖】或【黃金聖樹劍】！',
+    },
+    shopItems: [
+      { id: 'shop_bombs', x: 6 * 16, y: 4 * 16, price: 10, reward: 'bombs', icon: 'bomb', label: '炸彈x5', sold: false },
+      { id: 'shop_firerod', x: 9 * 16 + 8, y: 4 * 16, price: 20, reward: 'fire_rod', icon: 'fireRod', label: '聖火法杖', sold: false },
+      { id: 'shop_sword', x: 13 * 16, y: 4 * 16, price: 30, reward: 'master_sword', icon: 'masterSword', label: '黃金聖樹劍', sold: false },
+    ],
+    enemies: [],
+    chests: [],
+    traps: [],
   },
 };
 
@@ -165,7 +205,7 @@ const DUNGEON_ROOMS = {
     isDungeon: true,
     grid: [
       'WWWWWWWWW..WWWWWWWWW',
-      'W..t............t..W',
+      'W..t...o....o...t..W',
       'W..................W',
       'W....W........W....W',
       'W..................W',
@@ -182,40 +222,44 @@ const DUNGEON_ROOMS = {
       { type: 'stalfos', x: 13 * 16, y: 6 * 16 },
     ],
     chests: [],
+    shopItems: [],
+    traps: [{ x: 4 * 16, y: 5 * 16 + 8, minX: 3 * 16, maxX: 15 * 16, minY: 5 * 16 + 8, maxY: 5 * 16 + 8, vx: 68, vy: 0 }],
   },
   '0,0': {
-    name: '古神殿 1F — 機關石室',
+    name: '古神殿 1F — 雙重機關石室',
     isDungeon: true,
     grid: [
       'WWWWWWWWWWWWWWWWWWWW',
-      'W..t............t..W',
-      'W..................W',
-      'W......S....P......W',
-      'W..................W',
+      'W..t..BBBBBBBB..t..W',
+      'W.....B......B.....W',
+      'W.....BS....PB.....W',
+      'W.....B..CC..B.....W',
       'W....W........W....W',
-      'W....W........W....W',
+      'W....W...oo...W....W',
       'W..................W',
       'W..................W',
       'W..t............t..W',
       'W..................W',
       'WWWWWWWWW..WWWWWWWWW',
     ],
-    puzzleChest: { id: 'dungeon_switch_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '解開機關！獲得【古神殿小鑰匙】！' },
+    puzzleChest: { id: 'dungeon_switch_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '解開推箱與水晶機關！獲得【古神殿小鑰匙】！' },
     enemies: [{ type: 'bat', x: 5 * 16, y: 6 * 16 }, { type: 'bat', x: 14 * 16, y: 6 * 16 }],
     chests: [],
+    shopItems: [],
+    traps: [],
   },
   '1,1': {
-    name: '古神殿 1F — 暗影迴廊',
+    name: '古神殿 1F — 聖火迴廊',
     isDungeon: true,
     grid: [
       'WWWWWWWWWDDWWWWWWWWW',
-      'W..t............t..W',
+      'W..t..U......U..t..W',
       'W....W........W....W',
       'W..................W',
       'W......WWXXWW......W',
       '...................W',
       '...................W',
-      'W..................W',
+      'W...o..........o...W',
       'W....W........W....W',
       'W..t............t..W',
       'W..................W',
@@ -226,14 +270,17 @@ const DUNGEON_ROOMS = {
       { type: 'bat', x: 13 * 16, y: 3 * 16 },
       { type: 'stalfos', x: 10 * 16, y: 7 * 16 },
     ],
-    chests: [{ id: 'dungeon_bombs', x: 16 * 16, y: 2 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆，準備迎接炎核守衛！' }],
+    chests: [{ id: 'dungeon_bombs', x: 16 * 16, y: 2 * 16, reward: 'bombs', text: '獲得【炸彈補給袋】！炸彈 +5 顆！' }],
+    brazierChest: { id: 'dungeon_brazier_key', x: 9 * 16 + 8, y: 2 * 16, reward: 'key', text: '聖火重燃！獲得隱藏【古神殿小鑰匙】！' },
+    shopItems: [],
+    traps: [{ x: 15 * 16, y: 6 * 16, minX: 4 * 16, maxX: 16 * 16, minY: 6 * 16, maxY: 6 * 16, vx: -74, vy: 0 }],
   },
   '1,0': {
     name: '古神殿最深處 — 炎核聖壇 (BOSS)',
     isDungeon: true,
     grid: [
       'WWWWWWWWWWWWWWWWWWWW',
-      'W..t............t..W',
+      'W..t.o........o.t..W',
       'W..................W',
       'W..................W',
       'W..................W',
@@ -241,13 +288,15 @@ const DUNGEON_ROOMS = {
       'W..................W',
       'W..................W',
       'W..................W',
-      'W..t............t..W',
+      'W..t.o........o.t..W',
       'W..................W',
       'WWWWWWWWW..WWWWWWWWW',
     ],
     enemies: [],
     hasBoss: true,
     chests: [],
+    shopItems: [],
+    traps: [],
   },
 };
 
@@ -277,6 +326,12 @@ function parseGrid(grid, isDungeon) {
         case '^': t = TILE.STAIRS_OUT; break;
         case 'i': t = TILE.SIGN; break;
         case 'O': t = TILE.PEDESTAL; break;
+        case 'o': t = TILE.POT; break;
+        case 'C': t = TILE.CRYSTAL_ORB; break;
+        case 'R': t = TILE.RED_BLOCK; break;
+        case 'B': t = TILE.BLUE_BLOCK; break;
+        case 'U': t = TILE.BRAZIER_OFF; break;
+        case 'F': t = TILE.FAIRY_SPRING; break;
       }
       tiles[y * ROOM_COLS + x] = t;
     }
@@ -286,11 +341,9 @@ function parseGrid(grid, isDungeon) {
 
 export class World {
   constructor() {
-    this.maps = {
-      overworld: {},
-      dungeon: {},
-    };
+    this.maps = { overworld: {}, dungeon: {} };
     this.visited = new Set();
+    this.crystalState = 0; // 0 = RED up / BLUE down, 1 = BLUE up / RED down
 
     for (const [key, def] of Object.entries(OVERWORLD_ROOMS)) {
       this.maps.overworld[key] = this._instantiateRoom(key, def);
@@ -308,10 +361,14 @@ export class World {
       tiles: parseGrid(def.grid, def.isDungeon),
       npc: def.npc ? { ...def.npc } : null,
       signText: def.signText || null,
-      enemySpawns: def.enemies.map((e) => ({ ...e })),
-      chests: def.chests.map((c) => ({ ...c, opened: false })),
+      enemySpawns: (def.enemies || []).map((e) => ({ ...e })),
+      chests: (def.chests || []).map((c) => ({ ...c, opened: false })),
       puzzleChest: def.puzzleChest ? { ...def.puzzleChest, revealed: false, opened: false } : null,
+      brazierChest: def.brazierChest ? { ...def.brazierChest, revealed: false, opened: false } : null,
+      shopItems: (def.shopItems || []).map((s) => ({ ...s })),
+      trapSpawns: (def.traps || []).map((tr) => ({ ...tr })),
       switchSolved: false,
+      brazierSolved: false,
       hasBoss: Boolean(def.hasBoss),
       bossDefeated: false,
       relicSpawned: false,
@@ -327,6 +384,8 @@ export class World {
   }
 
   isSolidTile(t) {
+    if (t === TILE.RED_BLOCK) return this.crystalState === 0;
+    if (t === TILE.BLUE_BLOCK) return this.crystalState === 1;
     return (
       t === TILE.TREE ||
       t === TILE.WATER ||
@@ -337,7 +396,11 @@ export class World {
       t === TILE.PUSH_BLOCK ||
       t === TILE.LOCKED_DOOR ||
       t === TILE.TORCH ||
-      t === TILE.SIGN
+      t === TILE.SIGN ||
+      t === TILE.POT ||
+      t === TILE.CRYSTAL_ORB ||
+      t === TILE.BRAZIER_OFF ||
+      t === TILE.BRAZIER_ON
     );
   }
 }
